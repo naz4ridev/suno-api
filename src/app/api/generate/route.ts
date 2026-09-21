@@ -1,103 +1,40 @@
-import { NextResponse, NextRequest } from "next/server";
-import { missingSunoCookieResponse, resolveSunoCookie } from "@/lib/apiAuth";
-import { DEFAULT_MODEL, sunoApi } from "@/lib/SunoApi";
-import { corsHeaders } from "@/lib/utils";
+import { NextRequest } from "next/server";
+import { DEFAULT_MODEL } from "@/lib/SunoApi";
+import { buildGenerateOptions, getClient } from "@/lib/routeHelpers";
+import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from "@/lib/utils";
 
+export const maxDuration = 60; // allow longer timeout for wait_audio == true
 export const dynamic = "force-dynamic";
 
+/**
+ * Simple mode generation ("song description").
+ * Optional: persona_id/voice_id, weirdness, style_weight, audio_weight, vocal_gender, workspace_id/workspace_name, account.
+ */
 export async function POST(req: NextRequest) {
-  if (req.method === 'POST') {
-    try {
-      const body = await req.json();
-      const { prompt, make_instrumental, model, wait_audio } = body;
-      const sunoCookie = resolveSunoCookie(req, body);
-      if (!sunoCookie)
-        return missingSunoCookieResponse();
+  try {
+    const body = await req.json();
+    const { prompt, make_instrumental, model, wait_audio } = body;
+    if (!prompt)
+      return jsonResponse({ error: 'prompt is required' }, 400);
 
-      const audioInfo = await (await sunoApi(sunoCookie)).generate(
-        prompt,
-        Boolean(make_instrumental),
-        model || DEFAULT_MODEL,
-        Boolean(wait_audio)
-      );
+    const client = await getClient(req, body);
+    if (client instanceof Response)
+      return client;
 
-      return new NextResponse(JSON.stringify(audioInfo), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    } catch (error: any) {
-      console.error('Error generating audio:', error);
-      
-      // Handle different types of errors
-      if (error.response) {
-        // Axios error with response
-        console.error('Response error:', JSON.stringify(error.response.data));
-        
-        if (error.response.status === 402) {
-          return new NextResponse(JSON.stringify({ 
-            error: error.response.data?.detail || 'Payment required' 
-          }), {
-            status: 402,
-            headers: {
-              'Content-Type': 'application/json',
-              ...corsHeaders
-            }
-          });
-        }
-        
-        return new NextResponse(JSON.stringify({ 
-          error: 'API Error: ' + (error.response.data?.detail || error.response.statusText || 'Unknown error')
-        }), {
-          status: error.response.status || 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        });
-      } else if (error.request) {
-        // Axios error without response (network error, timeout, etc.)
-        console.error('Network error:', error.message);
-        return new NextResponse(JSON.stringify({ 
-          error: 'Network error: Unable to connect to Suno API. Please check your internet connection and try again.' 
-        }), {
-          status: 503,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        });
-      } else {
-        // Other types of errors (timeout, etc.)
-        console.error('Other error:', error.message);
-        return new NextResponse(JSON.stringify({ 
-          error: 'Internal error: ' + (error.message || 'Unknown error occurred') 
-        }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        });
-      }
-    }
-  } else {
-    return new NextResponse('Method Not Allowed', {
-      headers: {
-        Allow: 'POST',
-        ...corsHeaders
-      },
-      status: 405
-    });
+    const options = await buildGenerateOptions(client.api, body);
+    const audioInfo = await client.api.generate(
+      prompt,
+      parseBoolean(make_instrumental),
+      model || DEFAULT_MODEL,
+      parseBoolean(wait_audio),
+      options
+    );
+    return jsonResponse(audioInfo);
+  } catch (error: any) {
+    return errorResponse(error, 'Error generating audio');
   }
 }
 
-
-export async function OPTIONS(request: Request) {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders
-  });
+export async function OPTIONS() {
+  return optionsResponse();
 }

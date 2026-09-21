@@ -113,6 +113,64 @@ export const waitForRequests = (page: Page, signal: AbortSignal): Promise<void> 
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key, x-suno-account, x-suno-cookie, x-admin-token',
 }
+
+export const jsonResponse = (data: unknown, status: number = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      ...corsHeaders
+    }
+  });
+
+/**
+ * Error response that keeps the upstream status (Suno API errors, account errors, upload rejections)
+ * and exposes structured upload-failure fields when present.
+ */
+export const errorResponse = (error: any, context?: string) => {
+  const rawStatus = Number(error?.status || error?.response?.status);
+  const status = rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
+  if (context)
+    logger.error({ err: error?.message, status }, context);
+
+  const body: Record<string, any> = {
+    error: error?.message || 'Internal server error'
+  };
+  for (const key of ['error_type', 'category', 'retryable', 'copyright']) {
+    if (error?.[key] !== undefined)
+      body[key] = error[key];
+  }
+  if (error?.detail !== undefined)
+    body.detail = error.detail;
+
+  return jsonResponse(body, status);
+}
+
+export const parseBoolean = (value: unknown, defaultValue: boolean = false): boolean => {
+  if (value === undefined || value === null || value === '')
+    return defaultValue;
+  if (typeof value === 'boolean')
+    return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized))
+    return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized))
+    return false;
+  return defaultValue;
+}
+
+export const parseOptionalNumber = (value: unknown): number | undefined => {
+  if (value === undefined || value === null || value === '')
+    return undefined;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+export const optionsResponse = () =>
+  new Response(null, {
+    status: 200,
+    headers: corsHeaders
+  });

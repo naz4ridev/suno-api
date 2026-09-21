@@ -1,58 +1,42 @@
-import { NextResponse, NextRequest } from "next/server";
-import { missingSunoCookieResponse, resolveSunoCookie } from "@/lib/apiAuth";
-import { DEFAULT_MODEL, sunoApi } from "@/lib/SunoApi";
-import { corsHeaders } from "@/lib/utils";
+import { NextRequest } from "next/server";
+import { DEFAULT_MODEL } from "@/lib/SunoApi";
+import { buildGenerateOptions, getClient } from "@/lib/routeHelpers";
+import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from "@/lib/utils";
 
 export const maxDuration = 60; // allow longer timeout for wait_audio == true
 export const dynamic = "force-dynamic";
 
+/**
+ * Custom mode generation (lyrics + styles + title).
+ * Optional: persona_id/voice_id, weirdness, style_weight, audio_weight, aug_creativity, vocal_gender,
+ * is_max_mode, workspace_id/workspace_name, model (incl. chirp-custom:<id>), account.
+ */
 export async function POST(req: NextRequest) {
-  if (req.method === 'POST') {
-    try {
-      const body = await req.json();
-      const { prompt, tags, title, make_instrumental, model, wait_audio, negative_tags } = body;
-      const sunoCookie = resolveSunoCookie(req, body);
-      if (!sunoCookie)
-        return missingSunoCookieResponse();
+  try {
+    const body = await req.json();
+    const { prompt, tags, title, make_instrumental, model, wait_audio, negative_tags } = body;
 
-      const audioInfo = await (await sunoApi(sunoCookie)).custom_generate(
-        prompt, tags, title,
-        Boolean(make_instrumental),
-        model || DEFAULT_MODEL,
-        Boolean(wait_audio),
-        negative_tags
-      );
-      return new NextResponse(JSON.stringify(audioInfo), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    } catch (error: any) {
-      console.error('Error generating custom audio:', error);
-      return new NextResponse(JSON.stringify({ error: error.response?.data?.detail || error.toString() }), {
-        status: error.response?.status || 500,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    }
-  } else {
-    return new NextResponse('Method Not Allowed', {
-      headers: {
-        Allow: 'POST',
-        ...corsHeaders
-      },
-      status: 405
-    });
+    const client = await getClient(req, body);
+    if (client instanceof Response)
+      return client;
+
+    const options = await buildGenerateOptions(client.api, body);
+    const audioInfo = await client.api.custom_generate(
+      prompt || '',
+      tags || '',
+      title || '',
+      parseBoolean(make_instrumental),
+      model || DEFAULT_MODEL,
+      parseBoolean(wait_audio),
+      negative_tags,
+      options
+    );
+    return jsonResponse(audioInfo);
+  } catch (error: any) {
+    return errorResponse(error, 'Error generating custom audio');
   }
 }
 
-export async function OPTIONS(request: Request) {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders
-  });
+export async function OPTIONS() {
+  return optionsResponse();
 }

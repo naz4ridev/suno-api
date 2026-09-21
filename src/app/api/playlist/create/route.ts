@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
 
     const response = await (await sunoApi(sunoCookie)).createPlaylist(
       name,
-      typeof body.description === 'string' ? body.description : undefined
+      typeof body.description === 'string' ? body.description : undefined,
+      typeof body.is_public === 'boolean' ? body.is_public : undefined
     );
 
     return new NextResponse(JSON.stringify(response), {

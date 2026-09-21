@@ -1,63 +1,30 @@
-import { NextResponse, NextRequest } from 'next/server';
-import { missingSunoCookieResponse, resolveSunoCookie } from '@/lib/apiAuth';
-import { sunoApi } from '@/lib/SunoApi';
-import { corsHeaders } from '@/lib/utils';
+import { NextRequest } from 'next/server';
+import { getClient } from '@/lib/routeHelpers';
+import { errorResponse, jsonResponse, optionsResponse } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * GET /api/get?ids=a,b -> clips by id (feed/v3).
+ * Without ids -> latest clips of the default workspace; `page` is the feed cursor.
+ */
 export async function GET(req: NextRequest) {
-  if (req.method === 'GET') {
-    try {
-      const url = new URL(req.url);
-      const songIds = url.searchParams.get('ids');
-      const page = url.searchParams.get('page');
-      const sunoCookie = resolveSunoCookie(req);
-      if (!sunoCookie)
-        return missingSunoCookieResponse();
+  try {
+    const url = new URL(req.url);
+    const songIds = url.searchParams.get('ids');
+    const page = url.searchParams.get('page') || url.searchParams.get('cursor');
 
-      let audioInfo = [];
-      if (songIds && songIds.length > 0) {
-        const idsArray = songIds.split(',');
-        audioInfo = await (await sunoApi(sunoCookie)).get(idsArray, page);
-      } else {
-        audioInfo = await (await sunoApi(sunoCookie)).get(undefined, page);
-      }
+    const client = await getClient(req);
+    if (client instanceof Response)
+      return client;
 
-      return new NextResponse(JSON.stringify(audioInfo), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    } catch (error) {
-      console.error('Error fetching audio:', error);
-
-      return new NextResponse(
-        JSON.stringify({ error: 'Internal server error' }),
-        {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        }
-      );
-    }
-  } else {
-    return new NextResponse('Method Not Allowed', {
-      headers: {
-        Allow: 'GET',
-        ...corsHeaders
-      },
-      status: 405
-    });
+    const ids = songIds ? songIds.split(',').map(id => id.trim()).filter(Boolean) : undefined;
+    return jsonResponse(await client.api.get(ids, page));
+  } catch (error: any) {
+    return errorResponse(error, 'Error fetching audio');
   }
 }
 
-export async function OPTIONS(request: Request) {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders
-  });
+export async function OPTIONS() {
+  return optionsResponse();
 }

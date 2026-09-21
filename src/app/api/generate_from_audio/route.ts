@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { missingSunoCookieResponse, resolveSunoCookie } from '@/lib/apiAuth';
-import { corsHeaders } from '@/lib/utils';
-import { AudioToAudioMode, sunoApi } from '@/lib/SunoApi';
+import { NextRequest } from 'next/server';
+import { AudioToAudioMode } from '@/lib/SunoApi';
+import { buildGenerateOptions, getClient } from '@/lib/routeHelpers';
+import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from '@/lib/utils';
 
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 const validModes: AudioToAudioMode[] = ['cover', 'add_vocals', 'add_instrumental'];
@@ -12,71 +13,37 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const mode = body.mode as AudioToAudioMode;
 
-    if (!body.clip_id) {
-      return new NextResponse(JSON.stringify({ error: 'Missing clip_id' }), {
-        status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    }
+    if (!body.clip_id)
+      return jsonResponse({ error: 'Missing clip_id' }, 400);
 
-    if (!validModes.includes(mode)) {
-      return new NextResponse(
-        JSON.stringify({ error: 'mode must be one of: cover, add_vocals, add_instrumental' }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        }
-      );
-    }
+    if (!validModes.includes(mode))
+      return jsonResponse({ error: 'mode must be one of: cover, add_vocals, add_instrumental' }, 400);
 
-    const sunoCookie = resolveSunoCookie(req, body);
-    if (!sunoCookie)
-      return missingSunoCookieResponse();
+    const client = await getClient(req, body);
+    if (client instanceof Response)
+      return client;
 
-    const response = await (await sunoApi(sunoCookie)).generateFromAudio(body.clip_id, mode, {
+    // workspace resolution is done inside generateFromAudio (it defaults to the source clip workspace)
+    const { workspace_id, workspace_name, project_id, ...generateBody } = body;
+    const options = await buildGenerateOptions(client.api, generateBody);
+    const response = await client.api.generateFromAudio(body.clip_id, mode, {
+      ...options,
       prompt: body.prompt,
       title: body.title,
       tags: body.tags,
       negative_tags: body.negative_tags,
       model: body.model,
-      wait_audio: Boolean(body.wait_audio),
-      workspace_id: body.workspace_id,
-      workspace_name: body.workspace_name,
-      vocal_gender: body.vocal_gender
+      wait_audio: parseBoolean(body.wait_audio),
+      workspace_id: workspace_id || project_id,
+      workspace_name
     });
 
-    return new NextResponse(JSON.stringify(response), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders
-      }
-    });
+    return jsonResponse(response);
   } catch (error: any) {
-    console.error('Error generating from audio:', error);
-
-    return new NextResponse(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      }
-    );
+    return errorResponse(error, 'Error generating from audio');
   }
 }
 
 export async function OPTIONS() {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders
-  });
+  return optionsResponse();
 }

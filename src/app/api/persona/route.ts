@@ -1,66 +1,39 @@
-import { NextResponse, NextRequest } from "next/server";
-import { missingSunoCookieResponse, resolveSunoCookie } from "@/lib/apiAuth";
-import { sunoApi } from "@/lib/SunoApi";
-import { corsHeaders } from "@/lib/utils";
+import { NextRequest } from "next/server";
+import { getClient } from "@/lib/routeHelpers";
+import { errorResponse, jsonResponse, optionsResponse } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * GET /api/persona?id=<persona_id>&page=1   -> persona with its clips (paginated)
+ * GET /api/persona?list=mine|loved|followed -> personas of the account (voices have persona_type "vox")
+ */
 export async function GET(req: NextRequest) {
-  if (req.method === 'GET') {
-    try {
-      const url = new URL(req.url);
-      const personaId = url.searchParams.get('id');
-      const page = url.searchParams.get('page');
+  try {
+    const url = new URL(req.url);
+    const personaId = url.searchParams.get('id');
+    const list = url.searchParams.get('list');
+    const pageNumber = parseInt(url.searchParams.get('page') || '1') || 1;
 
-      if (personaId == null) {
-        return new NextResponse(JSON.stringify({ error: 'Missing parameter id' }), {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        });
-      }
+    if (!personaId && !list)
+      return jsonResponse({ error: 'Missing parameter id (or list=mine|loved|followed)' }, 400);
 
-      const pageNumber = page ? parseInt(page) : 1;
-      const sunoCookie = resolveSunoCookie(req);
-      if (!sunoCookie)
-        return missingSunoCookieResponse();
+    const client = await getClient(req);
+    if (client instanceof Response)
+      return client;
 
-      const personaInfo = await (await sunoApi(sunoCookie)).getPersonaPaginated(personaId, pageNumber);
-
-      return new NextResponse(JSON.stringify(personaInfo), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    } catch (error) {
-      console.error('Error fetching persona:', error);
-
-      return new NextResponse(JSON.stringify({ error: 'Internal server error' }), {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
+    if (!personaId) {
+      const kind = (['mine', 'loved', 'followed'].includes(list!) ? list : 'mine') as 'mine' | 'loved' | 'followed';
+      return jsonResponse(await client.api.listPersonas(pageNumber, kind));
     }
-  } else {
-    return new NextResponse('Method Not Allowed', {
-      headers: {
-        Allow: 'GET',
-        ...corsHeaders
-      },
-      status: 405
-    });
+
+    const personaInfo = await client.api.getPersonaPaginated(personaId, pageNumber);
+    return jsonResponse(personaInfo);
+  } catch (error: any) {
+    return errorResponse(error, 'Error fetching persona');
   }
 }
 
-export async function OPTIONS(request: Request) {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders
-  });
+export async function OPTIONS() {
+  return optionsResponse();
 }

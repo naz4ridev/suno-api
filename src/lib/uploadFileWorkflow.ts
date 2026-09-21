@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { sleep } from '@/lib/utils';
-import { sunoApi } from '@/lib/SunoApi';
+import { classifyUploadFailure, sunoApi, SunoUploadError } from '@/lib/SunoApi';
 
 type UploadFileWorkStatus = 'queued' | 'running' | 'completed' | 'failed';
 type UploadFileStepStatus =
@@ -30,6 +29,17 @@ type UploadFileWorkflowInput = {
   workspace_name?: string;
   title?: string;
   image_url?: string;
+  /** Account that runs the upload (the cookie itself is never persisted). */
+  account_id?: string;
+  create_workspace_if_missing?: boolean;
+  audio_content_types?: string[];
+  reject_copyright_muted?: boolean;
+};
+
+type UploadFileOptions = {
+  createWorkspaceIfMissing?: boolean;
+  audioContentTypes?: string[];
+  rejectCopyrightMuted?: boolean;
 };
 
 type UploadFileWorkStep = {
@@ -54,6 +64,8 @@ export type UploadFileWork = {
     initialized_clip?: any;
     clip?: any;
     workspace_move?: any;
+    copyright_muted?: boolean;
+    warnings?: string[];
   };
   error?: {
     step: UploadFileStepKey;
@@ -64,6 +76,7 @@ export type UploadFileWork = {
 type UploadFileQueuedJob = {
   workId: string;
   sunoCookie: string;
+  accountId?: string;
   filePath: string;
   filename: string;
   contentType?: string;
@@ -71,6 +84,7 @@ type UploadFileQueuedJob = {
   workspaceName?: string;
   title?: string;
   imageUrl?: string;
+  options?: UploadFileOptions;
 };
 
 const resolveWorkDir = () => {
@@ -91,7 +105,7 @@ const WORKFLOW_STEPS: Array<Pick<UploadFileWorkStep, 'key' | 'label'>> = [
   { key: 'poll_upload', label: 'Wait for Suno upload processing' },
   { key: 'initialize_clip', label: 'Initialize clip in account' },
   { key: 'set_metadata', label: 'Set clip metadata' },
-  { key: 'set_audio_description', label: 'Accept inferred description' },
+  { key: 'set_audio_description', label: 'Accept inferred description (optional)' },
   { key: 'move_to_workspace', label: 'Move clip to workspace' }
 ];
 
@@ -162,12 +176,34 @@ async function updateWork(
 }
 
 function buildErrorDetail(error: any) {
-  return {
+  const detail: Record<string, any> = {
     message: error?.message || 'Unknown error',
     status: error?.status || error?.response?.status,
     data: error?.response?.data,
     detail: error?.detail
   };
+  if (error instanceof SunoUploadError) {
+    detail.error_type = error.error_type;
+    detail.category = error.category;
+    detail.retryable = error.retryable;
+    detail.copyright = error.copyright;
+  }
+  return detail;
+}
+
+/** Presigned S3 fields (policy/signature) are useless after upload and should not be persisted. */
+function redactUploadTask(task: any) {
+  if (!task || typeof task !== 'object')
+    return task;
+  const sensitive = new Set(['policy', 'signature', 'awsaccesskeyid', 'x-amz-signature', 'x-amz-credential', 'x-amz-security-token']);
+  const fields = task.fields && typeof task.fields === 'object'
+    ? Object.fromEntries(
+      Object.entries(task.fields).map(([key, value]) =>
+        [key, sensitive.has(key.toLowerCase()) ? '[redacted]' : value]
+      )
+    )
+    : task.fields;
+  return { ...task, fields };
 }
 
 async function markStepStatus(
@@ -290,13 +326,14 @@ async function ensureRecovery() {
 async function runTrackedStep<T>(
   workId: string,
   stepKey: UploadFileStepKey,
-  action: () => Promise<T>
+  action: () => Promise<T>,
+  toOutput: (output: T) => any = output => output
 ): Promise<T> {
   await markStepStatus(workId, stepKey, 'running');
 
   try {
     const output = await action();
-    await markStepStatus(workId, stepKey, 'completed', { output });
+    await markStepStatus(workId, stepKey, 'completed', { output: toOutput(output) });
     return output;
   } catch (error: any) {
     await markStepStatus(workId, stepKey, 'failed', {
@@ -309,16 +346,19 @@ async function runTrackedStep<T>(
 export async function runUploadFileWorkflow({
   workId,
   sunoCookie,
+  accountId,
   fileBuffer,
   filename,
   contentType,
   workspaceId,
   workspaceName,
   title,
-  imageUrl
+  imageUrl,
+  options = {}
 }: {
   workId: string;
   sunoCookie: string;
+  accountId?: string;
   fileBuffer: Buffer;
   filename: string;
   contentType?: string;
@@ -326,18 +366,21 @@ export async function runUploadFileWorkflow({
   workspaceName?: string;
   title?: string;
   imageUrl?: string;
+  options?: UploadFileOptions;
 }) {
   await setWorkState(workId, 'running');
 
   let failedStep: UploadFileStepKey = 'create_upload';
+  const warnings: string[] = [];
 
   try {
-    const api = await sunoApi(sunoCookie);
+    const api = await sunoApi(sunoCookie, accountId);
     const extension = api.resolveAudioUploadExtension(filename, contentType);
 
     failedStep = 'create_upload';
     const uploadTask = await runTrackedStep(workId, 'create_upload', () =>
-      api.createAudioUpload(extension)
+      api.createAudioUpload(extension, 'file_upload'),
+      redactUploadTask
     );
 
     failedStep = 'upload_storage';
@@ -347,7 +390,10 @@ export async function runUploadFileWorkflow({
 
     failedStep = 'upload_finish';
     await runTrackedStep(workId, 'upload_finish', () =>
-      api.finishAudioUpload(uploadTask.id, filename)
+      api.finishAudioUpload(uploadTask.id, filename, {
+        upload_type: 'file_upload',
+        agreed_to_vip_upload_terms: false
+      })
     );
 
     failedStep = 'poll_upload';
@@ -379,19 +425,22 @@ export async function runUploadFileWorkflow({
           break;
         }
 
-        if (uploadResult.status === 'error') {
-          const uploadError = new Error(
-            uploadResult.error_message || 'Suno upload processing failed'
-          );
-          (uploadError as Error & { detail?: any }).detail = uploadResult;
-          throw uploadError;
+        if (uploadResult.status === 'error')
+          throw classifyUploadFailure(uploadResult.error_type, uploadResult.error_message, undefined, uploadResult);
+
+        // The web app gives up after 5 minutes of processing.
+        if (Date.now() - startedAt > 300000) {
+          throw new SunoUploadError({
+            message: 'Timed out waiting for Suno to finish processing the upload',
+            category: 'timeout',
+            retryable: true,
+            copyright: false,
+            detail: uploadResult
+          });
         }
 
-        if (Date.now() - startedAt > 120000) {
-          throw new Error('Timed out waiting for Suno to finish processing the upload');
-        }
-
-        await sleep(3, 5);
+        await new Promise(resolve => setTimeout(resolve, 4000));
+        await api.keepAlive(true);
         uploadResult = await api.getUploadedAudio(uploadTask.id);
       }
     } catch (error: any) {
@@ -405,9 +454,25 @@ export async function runUploadFileWorkflow({
       throw error;
     }
 
+    const copyrightMuted = Boolean(uploadResult.copyright_muted);
+    if (copyrightMuted) {
+      if (options.rejectCopyrightMuted) {
+        failedStep = 'initialize_clip';
+        const mutedError = classifyUploadFailure(
+          'upload_copyright_muted',
+          'copyright: Suno muted the copyrighted parts of this upload (reject_copyright_muted=true)',
+          undefined,
+          uploadResult
+        );
+        await markStepStatus(workId, 'initialize_clip', 'failed', { error: buildErrorDetail(mutedError) });
+        throw mutedError;
+      }
+      warnings.push('copyright_muted: Suno muted the parts of this upload detected as copyrighted material');
+    }
+
     failedStep = 'initialize_clip';
     const initializedClip = await runTrackedStep(workId, 'initialize_clip', () =>
-      api.initializeUploadClip(uploadTask.id)
+      api.initializeUploadClip(uploadTask.id, {})
     );
 
     const metadataPayload = {
@@ -421,10 +486,24 @@ export async function runUploadFileWorkflow({
       api.setClipMetadata(initializedClip.clip_id, metadataPayload)
     );
 
+    // The web app only sends this when the user reviews the inferred description: failures are not fatal.
     failedStep = 'set_audio_description';
-    const clipResult = await runTrackedStep(workId, 'set_audio_description', () =>
-      api.acceptAudioDescription(initializedClip.clip_id)
-    );
+    let clipResult: any;
+    await markStepStatus(workId, 'set_audio_description', 'running');
+    try {
+      const descriptionPayload: Record<string, any> = { gemini_description_accepted: true };
+      if (options.audioContentTypes?.length)
+        descriptionPayload.audio_content_types = options.audioContentTypes;
+      clipResult = await api.acceptAudioDescription(initializedClip.clip_id, descriptionPayload);
+      await markStepStatus(workId, 'set_audio_description', 'completed', { output: clipResult });
+    } catch (error: any) {
+      warnings.push(`set_audio_description failed: ${error?.message || error}`);
+      await markStepStatus(workId, 'set_audio_description', 'skipped', {
+        output: { skipped: true, reason: 'set_audio_description failed (non fatal)' },
+        error: buildErrorDetail(error)
+      });
+      clipResult = await api.getClip(initializedClip.clip_id).catch(() => ({ id: initializedClip.clip_id }));
+    }
 
     let workspaceMove: any = null;
     if (workspaceId || workspaceName) {
@@ -433,7 +512,8 @@ export async function runUploadFileWorkflow({
         api.moveClipsToWorkspace(
           [initializedClip.clip_id],
           workspaceId,
-          workspaceName
+          workspaceName,
+          Boolean(options.createWorkspaceIfMissing)
         )
       );
     } else {
@@ -450,7 +530,9 @@ export async function runUploadFileWorkflow({
         upload: uploadResult,
         initialized_clip: initializedClip,
         clip: clipResult,
-        workspace_move: workspaceMove
+        workspace_move: workspaceMove,
+        copyright_muted: copyrightMuted,
+        ...(warnings.length ? { warnings } : {})
       }
     });
   } catch (error: any) {
@@ -487,6 +569,8 @@ async function processUploadFileQueue() {
         await runUploadFileWorkflow({
           workId: job.workId,
           sunoCookie: job.sunoCookie,
+          accountId: job.accountId,
+          options: job.options,
           fileBuffer,
           filename: job.filename,
           contentType: job.contentType,
@@ -517,6 +601,8 @@ async function processUploadFileQueue() {
 export async function enqueueUploadFileWork(job: {
   workId: string;
   sunoCookie: string;
+  accountId?: string;
+  options?: UploadFileOptions;
   fileBuffer: Buffer;
   filename: string;
   contentType?: string;
@@ -534,6 +620,8 @@ export async function enqueueUploadFileWork(job: {
   uploadQueue.jobs.set(job.workId, {
     workId: job.workId,
     sunoCookie: job.sunoCookie,
+    accountId: job.accountId,
+    options: job.options,
     filePath,
     filename: job.filename,
     contentType: job.contentType,

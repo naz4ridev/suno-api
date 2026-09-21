@@ -45,7 +45,8 @@ export async function POST(req: NextRequest) {
     const response = await (await sunoApi(sunoCookie)).setPlaylistMetadata({
       playlist_id: playlistId,
       name,
-      description: typeof body.description === 'string' ? body.description : undefined
+      description: typeof body.description === 'string' ? body.description : undefined,
+      is_public: typeof body.is_public === 'boolean' ? body.is_public : undefined
     });
 
     return new NextResponse(JSON.stringify(response), {

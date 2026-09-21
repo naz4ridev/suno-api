@@ -16,3 +16,17 @@ services:
       APP_BASE_PATH: ''
       BROWSER: chromium
       BROWSER_HEADLESS: 'true'
+      # Multi-account: accounts added with POST /api/accounts are stored here (persisted in the volume).
+      SUNO_ACCOUNTS_FILE: /app/.data/accounts.json
+      UPLOAD_FILE_WORK_DIR: /app/.data/upload-file-works
+    volumes:
+      - suno-api-data:/app/.data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  suno-api-data:

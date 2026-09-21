@@ -35,7 +35,13 @@ export async function POST(
     if (!sunoCookie)
       return missingSunoCookieResponse();
 
-    const response = await (await sunoApi(sunoCookie)).initializeUploadClip(audioId);
+    const initBody: { user_reviewed_tags?: boolean; downbeats?: any } = {};
+    if (typeof body?.user_reviewed_tags === 'boolean')
+      initBody.user_reviewed_tags = body.user_reviewed_tags;
+    if (body?.downbeats !== undefined)
+      initBody.downbeats = body.downbeats;
+
+    const response = await (await sunoApi(sunoCookie)).initializeUploadClip(audioId, initBody);
 
     return new NextResponse(JSON.stringify(response), {
       status: 200,

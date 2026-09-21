@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { missingSunoCookieResponse, resolveSunoCookie } from '@/lib/apiAuth';
-import { corsHeaders } from '@/lib/utils';
+import { corsHeaders, errorResponse } from '@/lib/utils';
 import { sunoApi } from '@/lib/SunoApi';
 
 export const dynamic = 'force-dynamic';
@@ -67,18 +67,7 @@ export async function GET(req: NextRequest) {
       limit: Number.isFinite(limitValue) && limitValue > 0 ? limitValue : 20
     });
   } catch (error: any) {
-    console.error('Error fetching workspace feed:', error);
-
-    return new NextResponse(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      }
-    );
+    return errorResponse(error, 'Error fetching workspace feed');
   }
 }
 
@@ -96,18 +85,7 @@ export async function POST(req: NextRequest) {
       limit: Number.isFinite(limitValue) && limitValue > 0 ? limitValue : 20
     });
   } catch (error: any) {
-    console.error('Error fetching workspace feed:', error);
-
-    return new NextResponse(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      }
-    );
+    return errorResponse(error, 'Error fetching workspace feed');
   }
 }
 

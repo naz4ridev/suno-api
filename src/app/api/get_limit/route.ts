@@ -1,52 +1,23 @@
-import { NextResponse, NextRequest } from "next/server";
-import { missingSunoCookieResponse, resolveSunoCookie } from "@/lib/apiAuth";
-import { sunoApi } from "@/lib/SunoApi";
-import { corsHeaders } from "@/lib/utils";
+import { NextRequest } from "next/server";
+import { getClient } from "@/lib/routeHelpers";
+import { errorResponse, jsonResponse, optionsResponse } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
+/** GET /api/get_limit[?account=] -> credits of the account (plus plan and upload limits). */
 export async function GET(req: NextRequest) {
-  if (req.method === 'GET') {
-    try {
-      const sunoCookie = resolveSunoCookie(req);
-      if (!sunoCookie)
-        return missingSunoCookieResponse();
+  try {
+    const client = await getClient(req);
+    if (client instanceof Response)
+      return client;
 
-      const limit = await (await sunoApi(sunoCookie)).get_credits();
-
-
-      return new NextResponse(JSON.stringify(limit), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    } catch (error) {
-      console.error('Error fetching limit:', error);
-
-      return new NextResponse(JSON.stringify({ error: 'Internal server error. ' + error }), {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    }
-  } else {
-    return new NextResponse('Method Not Allowed', {
-      headers: {
-        Allow: 'GET',
-        ...corsHeaders
-      },
-      status: 405
-    });
+    const limit = await client.api.get_credits();
+    return jsonResponse({ ...limit, account_id: client.auth.accountId ?? null });
+  } catch (error: any) {
+    return errorResponse(error, 'Error fetching limit');
   }
 }
 
-export async function OPTIONS(request: Request) {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders
-  });
+export async function OPTIONS() {
+  return optionsResponse();
 }

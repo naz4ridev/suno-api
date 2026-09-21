@@ -1,79 +1,40 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { missingSunoCookieResponse, resolveSunoCookie } from '@/lib/apiAuth';
-import { corsHeaders } from '@/lib/utils';
-import { sunoApi } from '@/lib/SunoApi';
+import { NextRequest } from 'next/server';
+import { getClient, parseClipIds } from '@/lib/routeHelpers';
+import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Body: { clip_ids | clip_id, workspace_id | workspace_name, create_if_missing?: boolean, account? }
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const rawClipIds = body.clip_ids ?? body.clip_id;
-    const clipIds = Array.isArray(rawClipIds)
-      ? rawClipIds
-      : typeof rawClipIds === 'string'
-        ? rawClipIds.split(',').map((clipId: string) => clipId.trim()).filter(Boolean)
-        : [];
+    const clipIds = parseClipIds(body.clip_ids ?? body.clip_id);
 
-    if (clipIds.length === 0) {
-      return new NextResponse(JSON.stringify({ error: 'Missing clip_ids or clip_id' }), {
-        status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    }
+    if (clipIds.length === 0)
+      return jsonResponse({ error: 'Missing clip_ids or clip_id' }, 400);
 
-    if (!body.workspace_id && !body.workspace_name) {
-      return new NextResponse(
-        JSON.stringify({ error: 'workspace_id or workspace_name is required' }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        }
-      );
-    }
+    if (!body.workspace_id && !body.workspace_name)
+      return jsonResponse({ error: 'workspace_id or workspace_name is required' }, 400);
 
-    const sunoCookie = resolveSunoCookie(req, body);
-    if (!sunoCookie)
-      return missingSunoCookieResponse();
+    const client = await getClient(req, body);
+    if (client instanceof Response)
+      return client;
 
-    const response = await (await sunoApi(sunoCookie)).moveClipsToWorkspace(
+    const response = await client.api.moveClipsToWorkspace(
       clipIds,
       body.workspace_id,
-      body.workspace_name
+      body.workspace_name,
+      parseBoolean(body.create_if_missing)
     );
 
-    return new NextResponse(JSON.stringify(response), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders
-      }
-    });
+    return jsonResponse(response);
   } catch (error: any) {
-    console.error('Error moving clips to workspace:', error);
-
-    return new NextResponse(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      }
-    );
+    return errorResponse(error, 'Error moving clips to workspace');
   }
 }
 
 export async function OPTIONS() {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders
-  });
+  return optionsResponse();
 }

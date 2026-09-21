@@ -249,7 +249,42 @@ Suno API currently mainly implements the following APIs:
 - `/api/concat`: Generate the whole song from extensions
 ```
 
-You can also specify `suno_cookie` per request, overriding the default cookies in the `SUNO_COOKIE` environment variable. This works in JSON bodies, query string, `multipart/form-data`, or the headers `x-suno-cookie` / `suno-cookie`. This comes in handy when, for example, you want to use multiple accounts at the same time.
+You can also specify `suno_cookie` per request, overriding the default cookies in the `SUNO_COOKIE` environment variable. This works in JSON bodies, query string, `multipart/form-data`, or the headers `x-suno-cookie` / `suno-cookie`.
+
+### Multiple accounts
+
+suno-api keeps one authenticated client per account, so several Suno accounts can be used at the same time.
+
+- **Register accounts** with `POST /api/accounts` `{ "cookie": "<Cookie header of suno.com or the __client value>", "label": "Main", "make_default": true }`.
+  The cookie is validated (login + `/api/session/` + credits) and stored in `SUNO_ACCOUNTS_FILE` (default `./.data/accounts.json`, mode 600, git-ignored; mount `/app/.data` as a volume in Docker).
+  Accounts can also be declared read-only with env vars: `SUNO_COOKIE` (id `SUNO_DEFAULT_ACCOUNT_ID`, default `default`) and `SUNO_ACCOUNTS='[{"id":"b","label":"B","cookie":"__client=..."}]'`.
+- **Pick an account** per request with `account` (JSON body, form-data or query) or the `x-suno-account` header. The value can be the account id, label, email or Suno handle. Without it the default account is used; `suno_cookie` still overrides everything.
+- **Manage**: `GET /api/accounts`, `GET|PATCH|DELETE /api/accounts/{id}` (`label`, `cookie`, `disabled`, `make_default`), `POST /api/accounts/{id}/check` (refresh user + credits). Cookies are never returned by the API.
+- Set `SUNO_ACCOUNTS_ADMIN_TOKEN` to require the `x-admin-token` header on account changes.
+- `/api/upload_file` works store the `account_id` that ran them (never the cookie).
+
+### Endpoints added in the Sep 2026 update
+
+```bash
+- `/api/models`: Models of the account (chirp-hawk = v6 default, chirp-hawk-wild, chirp-goose, custom `chirp-custom:<id>`)
+- `/api/custom_models` (GET/POST), `/api/custom_models/bases`, `/api/custom_models/{id}` (GET/DELETE): train and manage custom models
+- `/api/voices` (GET/POST), `/api/voices/phrase`, `/api/voices/verification/{id}`: create and list voices (vox personas)
+- `/api/persona?list=mine|loved|followed`: list personas
+- `/api/workspaces` (GET/POST): list/create workspaces
+- `/api/download`: mp3/wav download through /api/download/authorize (may deduct download credits)
+- `/api/wav_file?id=`: WAV conversion
+- `/api/clip_analysis?id=`: key and downbeats
+```
+
+Generation endpoints (`/api/generate`, `/api/custom_generate`, `/api/extend_audio`, `/api/generate_from_audio`) now use `POST /api/generate/v2-web/` and accept
+`persona_id` / `voice_id`, `weirdness`, `style_weight`, `audio_weight`, `aug_creativity`, `vocal_gender`, `is_max_mode`, `workspace_id` / `workspace_name` and `model` (including custom models).
+`/api/generate_stems` accepts `mode` = `extract` (default, `stem_name` + complement), `twelve` (12 stems) or `legacy`.
+
+`/api/upload_file` follows the current web flow and reports Suno's upload rejections in `error.detail` with `error_type`
+(`upload_failure_match_audible_magic`, `upload_failure_match_acrcloud`, `upload_failure_lyrics_copyright`, `upload_failure_check_failed`, ...),
+`category`, `retryable` and `copyright`. Copyright rejections always include the word "copyright" in the message.
+Completed works expose `result.copyright_muted` when Suno muted copyrighted parts (send `reject_copyright_muted=true` to fail instead).
+Extra form fields: `create_workspace_if_missing`, `audio_content_types`, `reject_copyright_muted`, `account`.
 
 For more detailed documentation, please check out the demo site:
 [suno.gcui.ai/docs](https://suno.gcui.ai/docs)

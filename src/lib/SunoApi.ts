@@ -1,5 +1,4 @@
-import axios, { AxiosInstance } from 'axios';
-import UserAgent from 'user-agents';
+import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import pino from 'pino';
 import yn from 'yn';
 import { isPage, sleep, waitForRequests } from '@/lib/utils';
@@ -11,15 +10,35 @@ import { BrowserContext, Page, Locator, chromium, firefox } from 'rebrowser-play
 import { createCursor, Cursor } from 'ghost-cursor-playwright';
 import { promises as fs } from 'fs';
 import path from 'node:path';
+import { resolveAccount, SunoAccount } from '@/lib/accounts';
 
-// sunoApi instance caching
-const globalForSunoApi = global as unknown as { sunoApiCache?: Map<string, SunoApi> };
+// sunoApi instance caching (one instance per cookie, so several accounts can be authenticated at once)
+const globalForSunoApi = global as unknown as {
+  sunoApiCache?: Map<string, SunoApi>;
+  sunoApiPending?: Map<string, Promise<SunoApi>>;
+};
 const cache = globalForSunoApi.sunoApiCache || new Map<string, SunoApi>();
+const pendingInits = globalForSunoApi.sunoApiPending || new Map<string, Promise<SunoApi>>();
 globalForSunoApi.sunoApiCache = cache;
+globalForSunoApi.sunoApiPending = pendingInits;
 
 const logger = pino();
-export const DEFAULT_MODEL = 'chirp-v3-5';
-export const DEFAULT_AUDIO_TO_AUDIO_MODEL = 'chirp-fenix';
+
+// Models exposed by /api/billing/info/ (Sep 2026): chirp-hawk (v6, default), chirp-hawk-wild (v6-wild),
+// chirp-goose (v6-mini) and custom models as `chirp-custom:<model_id>`.
+export const DEFAULT_MODEL = 'chirp-hawk';
+export const DEFAULT_AUDIO_TO_AUDIO_MODEL = 'chirp-hawk';
+// The web app always uses this model for stem generation (task gen_stem).
+export const STEM_MODEL = 'chirp-v3-5-b';
+export const STEM_TYPE_ID = 91;
+export const TWELVE_STEM_GROUPS = [
+  'Vocals', 'Backing_Vocals', 'Drums', 'Bass', 'Guitar', 'Keyboard',
+  'Percussion', 'Strings', 'Synth', 'FX', 'Brass', 'Woodwinds'
+];
+
+const DEFAULT_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36';
+const DEFAULT_SEC_CH_UA = '"Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"';
 
 export interface AudioInfo {
   id: string; // Unique identifier for the audio
@@ -38,6 +57,7 @@ export interface AudioInfo {
   negative_tags?: string; // Negative tags of music.
   duration?: string; // Duration of the audio
   error_message?: string; // Error message if any
+  [key: string]: any;
 }
 
 export interface WorkspaceInfo {
@@ -60,17 +80,24 @@ export interface UploadedAudioInfo {
   display_tags?: string;
   inferred_description?: string;
   error_message?: string;
+  error_type?: string;
+  copyright_muted?: boolean;
+  [key: string]: any;
 }
 
 export interface AudioUploadInitInfo {
   id: string;
   url: string;
   fields?: Record<string, string>;
+  is_file_uploaded?: boolean;
 }
 
 export interface InitializedUploadClipInfo {
   clip_id: string;
+  rights_clearance_available?: boolean;
 }
+
+export type AudioUploadType = 'file_upload' | 'voice_recording' | 'studio_file_upload';
 
 export interface PlaylistInfo {
   id: string;
@@ -92,6 +119,7 @@ export interface PlaylistInfo {
   play_count?: number;
   song_count?: number;
   is_discover_playlist?: boolean;
+  [key: string]: any;
 }
 
 export interface PlaylistListResponse {
@@ -100,21 +128,171 @@ export interface PlaylistListResponse {
   playlists: PlaylistInfo[];
 }
 
+export interface ModelInfo {
+  id?: string;
+  name: string;
+  external_key: string;
+  major_version?: number;
+  description?: string;
+  can_use: boolean;
+  is_default: boolean;
+  is_custom: boolean;
+  badges?: string[];
+  capabilities?: string[];
+  features?: string[];
+  max_lengths?: Record<string, number>;
+}
+
 export type AudioToAudioMode = 'cover' | 'add_vocals' | 'add_instrumental';
 
-interface PersonaResponse {
+export type StemMode = 'extract' | 'twelve' | 'legacy';
+
+export interface ControlSliders {
+  /** 0..1 (or 0..100) */
+  weirdness?: number;
+  /** 0..1 (or 0..100) */
+  style_weight?: number;
+  /** 0..1 (or 0..100), only used when there is an audio reference (cover, persona, ...) */
+  audio_weight?: number;
+  /** integer 0..4 */
+  aug_creativity?: number;
+}
+
+export interface GenerateOptions extends ControlSliders {
+  /** Custom mode lyrics. */
+  prompt?: string;
+  /** Simple ("song description") mode prompt. When set, generation runs in simple mode. */
+  gpt_description_prompt?: string;
+  tags?: string;
+  negative_tags?: string;
+  title?: string;
+  make_instrumental?: boolean;
+  model?: string;
+  /** Explicit task. When omitted it is derived from the references (cover, extend, persona...). */
+  task?: string;
+  /** Workspace (project) id where the clips will be created. */
+  project_id?: string;
+  /** Persona / voice id. Voices are personas with persona_type "vox". */
+  persona_id?: string;
+  artist_clip_id?: string;
+  artist_start_s?: number | null;
+  artist_end_s?: number | null;
+  cover_clip_id?: string;
+  cover_start_s?: number | null;
+  cover_end_s?: number | null;
+  continue_clip_id?: string;
+  continue_at?: number | null;
+  continued_aligned_prompt?: string | null;
+  underpainting_clip_id?: string;
+  overpainting_clip_id?: string;
+  stem_type_id?: number;
+  stem_type_group_name?: string;
+  stem_task?: string;
+  stem_name?: string;
+  vocal_gender?: 'm' | 'f' | string;
+  is_max_mode?: boolean;
+  override_fields?: string[];
+  lyrics_project_id?: string;
+  wait_audio?: boolean;
+  /** Extra fields merged into the payload as-is (escape hatch for new Suno parameters). */
+  extra_payload?: Record<string, any>;
+  /** Extra fields merged into payload.metadata as-is. */
+  extra_metadata?: Record<string, any>;
+}
+
+/**
+ * Upload rejection types used by the Suno web app (see uploads.* locale keys).
+ */
+const UPLOAD_FAILURES: Record<string, { category: string; retryable: boolean; copyright: boolean; description: string }> = {
+  upload_failure_match_audible_magic: { category: 'audio_match', retryable: false, copyright: true, description: 'copyright: this audio matches an existing recording (Audible Magic)' },
+  upload_failure_match_version_id: { category: 'audio_match', retryable: false, copyright: true, description: 'copyright: this audio matches an existing recording (version id)' },
+  upload_failure_match_acrcloud: { category: 'audio_match', retryable: false, copyright: true, description: 'copyright: this audio matches an existing recording (ACRCloud)' },
+  upload_failure_artwork: { category: 'audio_match', retryable: false, copyright: true, description: 'copyright: this audio matches an existing work of art' },
+  upload_failure_lyrics_copyright: { category: 'lyrics_copyright', retryable: false, copyright: true, description: 'copyright: this audio contains copyrighted lyrics' },
+  upload_blocked_copyright: { category: 'copyright_blocked', retryable: false, copyright: true, description: 'copyright infringement detected, uploads blocked' },
+  upload_failure_check_failed: { category: 'verification_failed', retryable: true, copyright: false, description: 'audio verification check timed out, try again' },
+  upload_failure_lyrics_check_failed: { category: 'verification_failed', retryable: true, copyright: false, description: 'lyrics verification failed, try again' },
+  upload_failure_artwork_check_failed: { category: 'verification_failed', retryable: true, copyright: false, description: 'artwork verification failed, try again' },
+  upload_failure_duration_short: { category: 'duration', retryable: false, copyright: false, description: 'audio is too short' },
+  upload_failure_duration_long: { category: 'duration', retryable: false, copyright: false, description: 'audio is too long' },
+  upload_failure_decode_audio: { category: 'decode', retryable: false, copyright: false, description: 'file is corrupted or has an unsupported format' },
+  upload_failure_fetch_audio: { category: 'fetch', retryable: true, copyright: false, description: 'Suno could not fetch the uploaded file, try again' },
+  upload_rate_limited: { category: 'rate_limited', retryable: true, copyright: false, description: 'uploading too fast, wait a few minutes' },
+  upload_blocked_account: { category: 'account_restricted', retryable: false, copyright: false, description: 'audio uploads are restricted for this account' }
+};
+
+export class SunoUploadError extends Error {
+  status?: number;
+  error_type?: string;
+  category: string;
+  retryable: boolean;
+  copyright: boolean;
+  detail?: any;
+
+  constructor(params: {
+    message: string;
+    error_type?: string;
+    category: string;
+    retryable: boolean;
+    copyright: boolean;
+    status?: number;
+    detail?: any;
+  }) {
+    super(params.message);
+    this.name = 'SunoUploadError';
+    this.error_type = params.error_type;
+    this.category = params.category;
+    this.retryable = params.retryable;
+    this.copyright = params.copyright;
+    this.status = params.status;
+    this.detail = params.detail;
+  }
+}
+
+/**
+ * Builds a descriptive error for a failed upload. Copyright-related failures always contain the word
+ * "copyright" in the message, so clients that match on it (e.g. spotify2suno pitch retries) keep working.
+ */
+export function classifyUploadFailure(
+  errorType?: string | null,
+  errorMessage?: string | null,
+  status?: number,
+  detail?: any
+): SunoUploadError {
+  const known = errorType ? UPLOAD_FAILURES[errorType] : undefined;
+  const message = (errorMessage || '').trim();
+  const looksCopyright = /copyright|infring|matched|known recording|rights holder/i.test(message);
+  const category = known?.category || (looksCopyright ? 'copyright' : 'processing_failed');
+  const copyright = known?.copyright ?? looksCopyright;
+  const description = known?.description || (copyright ? 'copyright check failed' : 'Suno upload processing failed');
+  const parts = [`Suno upload rejected${errorType ? ` (${errorType})` : ''}: ${description}`];
+  if (message && !description.toLowerCase().includes(message.toLowerCase()))
+    parts.push(message);
+
+  return new SunoUploadError({
+    message: parts.join(' - '),
+    error_type: errorType || undefined,
+    category,
+    retryable: known?.retryable ?? false,
+    copyright,
+    status,
+    detail
+  });
+}
+
+export interface PersonaResponse {
   persona: {
     id: string;
     name: string;
     description: string;
     image_s3_id: string;
     root_clip_id: string;
-    clip: any; // You can define a more specific type if needed
+    clip: any;
     user_display_name: string;
     user_handle: string;
     user_image_url: string;
     persona_clips: Array<{
-      clip: any; // You can define a more specific type if needed
+      clip: any;
     }>;
     is_suno_persona: boolean;
     is_trashed: boolean;
@@ -124,16 +302,41 @@ interface PersonaResponse {
     is_loved: boolean;
     upvote_count: number;
     clip_count: number;
+    persona_type?: string;
   };
   total_results: number;
   current_page: number;
   is_following: boolean;
 }
 
+const normalizeSlider = (value?: number): number | undefined => {
+  if (value === undefined || value === null || Number.isNaN(Number(value)))
+    return undefined;
+  const numeric = Number(value);
+  const ratio = numeric > 1 ? numeric / 100 : numeric;
+  return Math.min(1, Math.max(0, Math.round(ratio * 100) / 100));
+};
+
+const errorDetail = (data: any): string | undefined => {
+  if (!data)
+    return undefined;
+  if (typeof data === 'string')
+    return data.slice(0, 500);
+  const detail = data.detail ?? data.error ?? data.message;
+  if (typeof detail === 'string')
+    return detail;
+  if (detail)
+    return JSON.stringify(detail).slice(0, 500);
+  return JSON.stringify(data).slice(0, 500);
+};
+
+type RetryableConfig = InternalAxiosRequestConfig & { __retryCount?: number };
+
 class SunoApi {
-  private static BASE_URL: string = 'https://studio-api.prod.suno.com';
+  private static BASE_URL: string = (process.env.SUNO_STUDIO_API_URL || 'https://studio-api-prod.suno.com').replace(/\/+$/, '');
   private static CLERK_BASE_URL: string = 'https://auth.suno.com';
   private static CLERK_VERSION = '5.117.0';
+  private static MAX_429_RETRIES = Number(process.env.SUNO_MAX_429_RETRIES || 3);
 
   private readonly client: AxiosInstance;
   private sid?: string;
@@ -145,9 +348,14 @@ class SunoApi {
   private solver = new Solver(process.env.TWOCAPTCHA_KEY + '');
   private ghostCursorEnabled = yn(process.env.BROWSER_GHOST_CURSOR, { default: false });
   private cursor?: Cursor;
+  private billingCache?: { at: number; data: any };
+  private sessionCache?: { at: number; data: any };
+
+  /** Account id this instance was created for (when resolved through the account registry). */
+  public accountId?: string;
 
   constructor(cookies: string) {
-    this.userAgent = new UserAgent(/Macintosh/).random().toString(); // Usually Mac systems get less amount of CAPTCHAs
+    this.userAgent = process.env.SUNO_USER_AGENT || DEFAULT_USER_AGENT;
     this.cookies = cookie.parse(cookies);
     this.deviceId = this.cookies.ajs_anonymous_id || randomUUID();
     this.client = axios.create({
@@ -156,12 +364,12 @@ class SunoApi {
         'Affiliate-Id': 'undefined',
         'Device-Id': `${this.deviceId}`,
         'Browser-Token': this.getBrowserToken(),
-        'x-suno-client': 'Android prerelease-4nt180t 1.0.42',
-        'X-Requested-With': 'com.suno.android',
-        'sec-ch-ua': '"Chromium";v="130", "Android WebView";v="130", "Not?A_Brand";v="99"',
-        'sec-ch-ua-mobile': '?1',
-        'sec-ch-ua-platform': '"Android"',
+        'Referring-Origin': 'https://suno.com',
+        'sec-ch-ua': process.env.SUNO_SEC_CH_UA || DEFAULT_SEC_CH_UA,
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"macOS"',
         'User-Agent': this.userAgent,
+        'Accept-Language': 'en',
         Accept: '*/*',
         Origin: 'https://suno.com',
         Referer: 'https://suno.com/'
@@ -171,22 +379,52 @@ class SunoApi {
       if (this.currentToken && !config.headers.Authorization)
         config.headers.Authorization = `Bearer ${this.currentToken}`;
       config.headers['Browser-Token'] = this.getBrowserToken();
-      const cookiesArray = Object.entries(this.cookies).map(([key, value]) => 
+      const cookiesArray = Object.entries(this.cookies).map(([key, value]) =>
         cookie.serialize(key, value as string)
       );
       config.headers.Cookie = cookiesArray.join('; ');
       return config;
     });
-    this.client.interceptors.response.use(resp => {
-      const setCookieHeader = resp.headers['set-cookie'];
-      if (Array.isArray(setCookieHeader)) {
-        const newCookies = cookie.parse(setCookieHeader.join('; '));
-        for (const [key, value] of Object.entries(newCookies)) {
-          this.cookies[key] = value;
+    this.client.interceptors.response.use(
+      resp => {
+        const setCookieHeader = resp.headers['set-cookie'];
+        if (Array.isArray(setCookieHeader)) {
+          const newCookies = cookie.parse(setCookieHeader.join('; '));
+          for (const [key, value] of Object.entries(newCookies)) {
+            this.cookies[key] = value;
+          }
         }
+        return resp;
+      },
+      async (error: AxiosError) => {
+        const config = error.config as RetryableConfig | undefined;
+        const status = error.response?.status;
+        const isStudioApi = config?.url?.startsWith(SunoApi.BASE_URL);
+
+        // Suno rate limits bursts (429 "Too many requests", retryable: true). Back off and retry.
+        if (config && isStudioApi && status === 429) {
+          config.__retryCount = (config.__retryCount || 0) + 1;
+          if (config.__retryCount <= SunoApi.MAX_429_RETRIES) {
+            const retryAfter = Number(error.response?.headers?.['retry-after']);
+            const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+              ? retryAfter * 1000
+              : 2000 * 2 ** (config.__retryCount - 1) + Math.floor(Math.random() * 1000);
+            logger.warn(`Suno 429 on ${config.url}, retry ${config.__retryCount} in ${delayMs}ms`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            return this.client.request(config);
+          }
+        }
+
+        if (error.response && isStudioApi) {
+          const detail = errorDetail(error.response.data);
+          const method = (config?.method || 'get').toUpperCase();
+          const pathname = config?.url?.replace(SunoApi.BASE_URL, '') || '';
+          error.message = `Suno API ${status} on ${method} ${pathname}${detail ? `: ${detail}` : ''}`;
+          (error as any).status = status;
+        }
+        throw error;
       }
-      return resp;
-    })
+    );
   }
 
   private getBrowserToken(): string {
@@ -237,30 +475,10 @@ class SunoApi {
   }
 
   public async init(): Promise<SunoApi> {
-    //await this.getClerkLatestVersion();
     await this.getAuthToken();
     await this.keepAlive();
     return this;
   }
-
-  /**
-   * Get the clerk package latest version id.
-   * This method is commented because we are now using a hard-coded Clerk version, hence this method is not needed.
-   
-  private async getClerkLatestVersion() {
-    // URL to get clerk version ID
-    const getClerkVersionUrl = `${SunoApi.JSDELIVR_BASE_URL}/v1/package/npm/@clerk/clerk-js`;
-    // Get clerk version ID
-    const versionListResponse = await this.client.get(getClerkVersionUrl);
-    if (!versionListResponse?.data?.['tags']['latest']) {
-      throw new Error(
-        'Failed to get clerk version info, Please try again later'
-      );
-    }
-    // Save clerk version ID for auth
-    SunoApi.clerkVersion = versionListResponse?.data?.['tags']['latest'];
-  }
-  */
 
   /**
    * Get the session ID and save it for later use.
@@ -274,9 +492,11 @@ class SunoApi {
       headers: { Authorization: this.cookies.__client }
     });
     if (!sessionResponse?.data?.response?.last_active_session_id) {
-      throw new Error(
+      const error = new Error(
         'Failed to get session id, you may need to update the SUNO_COOKIE'
       );
+      (error as Error & { status?: number }).status = 401;
+      throw error;
     }
     // Save session ID for later use
     this.sid = sessionResponse.data.response.last_active_session_id;
@@ -323,26 +543,12 @@ class SunoApi {
     this.setCurrentToken(newToken);
   }
 
-  /**
-   * Get the session token (not to be confused with session ID) and save it for later use.
-   */
-  private async getSessionToken() {
-    const tokenResponse = await this.client.post(
-      `${SunoApi.BASE_URL}/api/user/create_session_id/`,
-      {
-        session_properties: JSON.stringify({ deviceId: this.deviceId }),
-        session_type: 1
-      }
-    );
-    return tokenResponse.data.session_id;
-  }
-
   private async captchaRequired(): Promise<boolean> {
     const resp = await this.client.post(`${SunoApi.BASE_URL}/api/c/check`, {
       ctype: 'generation'
     });
     logger.info(resp.data);
-    return resp.data.required;
+    return Boolean(resp.data?.required);
   }
 
   /**
@@ -546,7 +752,7 @@ class SunoApi {
       throw e;
     });
     return (new Promise((resolve, reject) => {
-      page.route('**/api/generate/v2/**', async (route: any) => {
+      page.route(/\/api\/generate\/v2(-web)?\//, async (route: any) => {
         try {
           logger.info('hCaptcha token received. Closing browser');
           route.abort();
@@ -574,69 +780,142 @@ class SunoApi {
       { headers: { 'content-type': 'application/x-www-form-urlencoded' } });
   }
 
+
+  private url(pathname: string): string {
+    return `${SunoApi.BASE_URL}${pathname}`;
+  }
+
+  private isNotFoundOrMethod(error: any): boolean {
+    const status = error?.response?.status;
+    return status === 404 || status === 405;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Account / session                                                   */
+  /* ------------------------------------------------------------------ */
+
   /**
-   * Generate a song based on the prompt.
-   * @param prompt The text prompt to generate audio from.
-   * @param make_instrumental Indicates if the generated audio should be instrumental.
-   * @param wait_audio Indicates if the method should wait for the audio file to be fully generated before returning.
-   * @returns
+   * Returns the logged in user (id, email, handle...) from /api/session/.
+   */
+  public async getSessionInfo(maxAgeMs: number = 5 * 60_000): Promise<any> {
+    if (this.sessionCache && Date.now() - this.sessionCache.at < maxAgeMs)
+      return this.sessionCache.data;
+
+    await this.keepAlive(false);
+    const response = await this.client.get(this.url('/api/session/'), { timeout: 15000 });
+    this.sessionCache = { at: Date.now(), data: response.data };
+    return response.data;
+  }
+
+  public async getUserInfo(): Promise<{ id?: string; email?: string; handle?: string; display_name?: string }> {
+    const session = await this.getSessionInfo();
+    const user = session?.user || {};
+    return {
+      id: user.id,
+      email: user.email,
+      handle: user.handle,
+      display_name: user.display_name
+    };
+  }
+
+  public async getBillingInfo(maxAgeMs: number = 60_000): Promise<any> {
+    if (this.billingCache && Date.now() - this.billingCache.at < maxAgeMs)
+      return this.billingCache.data;
+
+    await this.keepAlive(false);
+    const response = await this.client.get(this.url('/api/billing/info/'), { timeout: 15000 });
+    this.billingCache = { at: Date.now(), data: response.data };
+    return response.data;
+  }
+
+  public async get_credits(): Promise<object> {
+    const data = await this.getBillingInfo(0);
+    return {
+      credits_left: data.total_credits_left,
+      period: data.period,
+      monthly_limit: data.monthly_limit,
+      monthly_usage: data.monthly_usage,
+      plan: data.plan?.plan_key || data.plan?.name,
+      renews_on: data.renews_on,
+      period_end: data.period_end,
+      max_active_custom_models: data.max_active_custom_models,
+      audio_upload_limits: data.audio_upload_limits,
+      voice_upload_limits: data.voice_upload_limits,
+      voice_record_limits: data.voice_record_limits
+    };
+  }
+
+  /**
+   * Models available for this account, including custom models (`chirp-custom:<id>`).
+   */
+  public async getModels(): Promise<ModelInfo[]> {
+    const data = await this.getBillingInfo();
+    return (data.models || []).map((model: any) => ({
+      id: model.id,
+      name: model.name,
+      external_key: model.external_key,
+      major_version: model.major_version,
+      description: model.description,
+      can_use: Boolean(model.can_use),
+      is_default: Boolean(model.is_default_model),
+      is_custom: String(model.external_key || '').startsWith('chirp-custom:') || (model.badges || []).includes('custom'),
+      badges: model.badges,
+      capabilities: model.capabilities,
+      features: model.features,
+      max_lengths: model.max_lengths
+    }));
+  }
+
+  private async getUserTier(): Promise<string | undefined> {
+    try {
+      const data = await this.getBillingInfo(10 * 60_000);
+      return data?.plan?.id;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Generation                                                          */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Generate a song based on the prompt (simple mode).
    */
   public async generate(
     prompt: string,
     make_instrumental: boolean = false,
     model?: string,
-    wait_audio: boolean = false
+    wait_audio: boolean = false,
+    options: Partial<GenerateOptions> = {}
   ): Promise<AudioInfo[]> {
-    await this.keepAlive(false);
     const startTime = Date.now();
-    const audios = await this.generateSongs(
-      prompt,
-      false,
-      undefined,
-      undefined,
+    const audios = await this.generateV2Web({
+      ...options,
+      gpt_description_prompt: prompt,
       make_instrumental,
       model,
       wait_audio
-    );
-    const costTime = Date.now() - startTime;
-    logger.info('Generate Response:\n' + JSON.stringify(audios, null, 2));
-    logger.info('Cost time: ' + costTime);
+    });
+    logger.info('Generate cost time: ' + (Date.now() - startTime));
     return audios;
   }
 
   /**
    * Calls the concatenate endpoint for a clip to generate the whole song.
-   * @param clip_id The ID of the audio clip to concatenate.
-   * @returns A promise that resolves to an AudioInfo object representing the concatenated audio.
-   * @throws Error if the response status is not 200.
    */
   public async concatenate(clip_id: string): Promise<AudioInfo> {
     await this.keepAlive(false);
-    const payload: any = { clip_id: clip_id };
-
     const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/generate/concat/v2/`,
-      payload,
-      {
-        timeout: 10000 // 10 seconds timeout
-      }
+      this.url('/api/generate/concat/v2/'),
+      { clip_id },
+      { timeout: 10000 }
     );
-    if (response.status !== 200) {
-      throw new Error('Error response:' + response.statusText);
-    }
     return response.data;
   }
 
   /**
-   * Generates custom audio based on provided parameters.
-   *
-   * @param prompt The text prompt to generate audio from.
-   * @param tags Tags to categorize the generated audio.
-   * @param title The title for the generated audio.
-   * @param make_instrumental Indicates if the generated audio should be instrumental.
-   * @param wait_audio Indicates if the method should wait for the audio file to be fully generated before returning.
-   * @param negative_tags Negative tags that should not be included in the generated audio.
-   * @returns A promise that resolves to an array of AudioInfo objects representing the generated audios.
+   * Generates custom audio (custom mode: lyrics + styles + title).
    */
   public async custom_generate(
     prompt: string,
@@ -645,179 +924,185 @@ class SunoApi {
     make_instrumental: boolean = false,
     model?: string,
     wait_audio: boolean = false,
-    negative_tags?: string
+    negative_tags?: string,
+    options: Partial<GenerateOptions> = {}
   ): Promise<AudioInfo[]> {
     const startTime = Date.now();
-    const audios = await this.generateSongs(
+    const audios = await this.generateV2Web({
+      ...options,
       prompt,
-      true,
       tags,
       title,
       make_instrumental,
       model,
       wait_audio,
       negative_tags
-    );
-    const costTime = Date.now() - startTime;
-    logger.info(
-      'Custom Generate Response:\n' + JSON.stringify(audios, null, 2)
-    );
-    logger.info('Cost time: ' + costTime);
+    });
+    logger.info('Custom generate cost time: ' + (Date.now() - startTime));
     return audios;
   }
 
   /**
-   * Generates songs based on the provided parameters.
-   *
-   * @param prompt The text prompt to generate songs from.
-   * @param isCustom Indicates if the generation should consider custom parameters like tags and title.
-   * @param tags Optional tags to categorize the song, used only if isCustom is true.
-   * @param title Optional title for the song, used only if isCustom is true.
-   * @param make_instrumental Indicates if the generated song should be instrumental.
-   * @param wait_audio Indicates if the method should wait for the audio file to be fully generated before returning.
-   * @param negative_tags Negative tags that should not be included in the generated audio.
-   * @param task Optional indication of what to do. Enter 'extend' if extending an audio, otherwise specify null.
-   * @param continue_clip_id 
-   * @returns A promise that resolves to an array of AudioInfo objects representing the generated songs.
+   * Resolves the generation task the same way the web app does (getGenerateTaskFromReferences).
    */
-  private async generateSongs(
-    prompt: string,
-    isCustom: boolean,
-    tags?: string,
-    title?: string,
-    make_instrumental?: boolean,
-    model?: string,
-    wait_audio: boolean = false,
-    negative_tags?: string,
-    task?: string,
-    continue_clip_id?: string,
-    continue_at?: number
-  ): Promise<AudioInfo[]> {
+  private resolveTask(options: GenerateOptions, personaType?: string): string | undefined {
+    if (options.task)
+      return options.task;
+
+    const persona = options.persona_id ? (personaType === 'vox' ? 'vox' : 'legacy') : undefined;
+    const hasCover = Boolean(options.cover_clip_id);
+    const hasExtend = Boolean(options.continue_clip_id);
+
+    if (hasCover && persona === 'vox') return 'vox_cover';
+    if (hasCover && persona === 'legacy') return 'artist_cover';
+    if (hasExtend && persona === 'vox') return 'vox_extend';
+    if (hasExtend && persona === 'legacy') return 'artist_extend';
+    if (hasCover) return 'cover';
+    if (persona === 'vox') return 'vox';
+    if (persona === 'legacy') return 'artist_consistency';
+    if (options.stem_task) return 'gen_stem';
+    if (options.overpainting_clip_id) return 'overpainting';
+    if (options.underpainting_clip_id) return 'underpainting';
+    if (hasExtend) return 'extend';
+    return undefined;
+  }
+
+  /**
+   * Core generation call, equivalent to the web create form (POST /api/generate/v2-web/).
+   */
+  public async generateV2Web(options: GenerateOptions): Promise<AudioInfo[]> {
     await this.keepAlive();
-    const payload: any = {
-      make_instrumental: make_instrumental,
-      mv: model || DEFAULT_MODEL,
-      prompt: '',
-      generation_type: 'TEXT',
-      continue_at: continue_at,
-      continue_clip_id: continue_clip_id,
-      task: task,
-      token: await this.getCaptcha()
+
+    let personaType: string | undefined;
+    let artistClipId = options.artist_clip_id;
+    if (options.persona_id && (!options.task || !artistClipId)) {
+      const persona = await this.getPersona(options.persona_id).catch(() => null);
+      personaType = persona?.persona_type;
+      if (!artistClipId && persona?.root_clip_id)
+        artistClipId = persona.root_clip_id;
+    }
+
+    const isSimple = Boolean(options.gpt_description_prompt) && !options.prompt;
+    const task = this.resolveTask(options, personaType);
+    const hasReference = Boolean(
+      options.persona_id || options.cover_clip_id || options.continue_clip_id ||
+      options.underpainting_clip_id || options.overpainting_clip_id || options.stem_task
+    );
+
+    const sliders: Record<string, number> = {};
+    const weirdness = normalizeSlider(options.weirdness);
+    const styleWeight = normalizeSlider(options.style_weight);
+    const audioWeight = normalizeSlider(options.audio_weight);
+    if (weirdness !== undefined) sliders.weirdness_constraint = weirdness;
+    if (styleWeight !== undefined) sliders.style_weight = styleWeight;
+    if (audioWeight !== undefined && hasReference) sliders.audio_weight = audioWeight;
+    if (options.aug_creativity !== undefined && options.aug_creativity !== null)
+      sliders.aug_creativity = Math.min(4, Math.max(0, Math.round(Number(options.aug_creativity))));
+
+    const metadata: Record<string, any> = {
+      web_client_pathname: '/create',
+      create_surface: 'desktop_create_form',
+      is_max_mode: Boolean(options.is_max_mode),
+      is_mumble: false,
+      create_mode: isSimple ? 'simple' : 'custom',
+      user_tier: await this.getUserTier(),
+      create_session_token: randomUUID(),
+      disable_volume_normalization: false,
+      ...(options.vocal_gender ? { vocal_gender: options.vocal_gender } : {}),
+      ...(Object.keys(sliders).length ? { control_sliders: sliders } : {}),
+      ...(hasReference ? { is_remix: true } : {}),
+      ...(options.extra_metadata || {})
     };
-    if (isCustom) {
-      payload.tags = tags;
-      payload.title = title;
-      payload.negative_tags = negative_tags;
-      payload.prompt = prompt;
-    } else {
-      payload.gpt_description_prompt = prompt;
+
+    const payload: Record<string, any> = {
+      project_id: options.project_id,
+      token: await this.getCaptcha(),
+      task,
+      generation_type: 'TEXT',
+      title: options.title ?? '',
+      tags: options.tags ?? '',
+      negative_tags: options.negative_tags ?? '',
+      mv: options.model || (options.stem_task ? STEM_MODEL : DEFAULT_MODEL),
+      prompt: isSimple ? '' : options.prompt ?? '',
+      make_instrumental: Boolean(options.make_instrumental),
+      user_uploaded_images_b64: null,
+      metadata,
+      override_fields: options.override_fields ?? [],
+      cover_clip_id: options.cover_clip_id ?? null,
+      cover_start_s: options.cover_clip_id ? options.cover_start_s ?? null : null,
+      cover_end_s: options.cover_clip_id ? options.cover_end_s ?? null : null,
+      persona_id: options.persona_id ?? null,
+      artist_clip_id: options.persona_id ? artistClipId ?? null : null,
+      artist_start_s: options.persona_id ? options.artist_start_s ?? 0 : null,
+      artist_end_s: options.persona_id ? options.artist_end_s ?? null : null,
+      continue_clip_id: options.continue_clip_id ?? null,
+      continued_aligned_prompt: options.continued_aligned_prompt ?? null,
+      continue_at: options.continue_at ?? null,
+      transaction_uuid: randomUUID(),
+      token_provider: null
+    };
+
+    if (isSimple) {
+      payload.gpt_description_prompt = options.gpt_description_prompt;
+      delete payload.title;
+      delete payload.tags;
+      delete payload.negative_tags;
     }
-    logger.info(
-      'generateSongs payload:\n' +
-        JSON.stringify(
-          {
-            prompt: prompt,
-            isCustom: isCustom,
-            tags: tags,
-            title: title,
-            make_instrumental: make_instrumental,
-            wait_audio: wait_audio,
-            negative_tags: negative_tags,
-            payload: payload
-          },
-          null,
-          2
-        )
-    );
-    const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/generate/v2/`,
-      payload,
-      {
-        timeout: 10000 // 10 seconds timeout
-      }
-    );
-    if (response.status !== 200) {
-      throw new Error('Error response:' + response.statusText);
+    if (options.persona_id && !options.override_fields)
+      payload.override_fields = isSimple ? ['tags'] : ['prompt', 'tags'];
+    if (options.underpainting_clip_id)
+      payload.underpainting_clip_id = options.underpainting_clip_id;
+    if (options.overpainting_clip_id)
+      payload.overpainting_clip_id = options.overpainting_clip_id;
+    if (options.stem_task) {
+      payload.stem_type_id = options.stem_type_id ?? STEM_TYPE_ID;
+      payload.stem_type_group_name = options.stem_type_group_name;
+      payload.stem_task = options.stem_task;
+      if (options.stem_name)
+        payload.stem_name = options.stem_name;
     }
-    const songIds = response.data.clips.map((audio: any) => audio.id);
-    //Want to wait for music file generation
-    if (wait_audio) {
-      const startTime = Date.now();
-      let lastResponse: AudioInfo[] = [];
-      await sleep(5, 5);
-      while (Date.now() - startTime < 100000) {
-        const response = await this.get(songIds);
-        const allCompleted = response.every(
-          (audio) => audio.status === 'streaming' || audio.status === 'complete'
-        );
-        const allError = response.every((audio) => audio.status === 'error');
-        if (allCompleted || allError) {
-          return response;
-        }
-        lastResponse = response;
-        await sleep(3, 6);
-        await this.keepAlive(true);
-      }
-      return lastResponse;
-    } else {
-      return response.data.clips.map((audio: any) => ({
-        id: audio.id,
-        title: audio.title,
-        image_url: audio.image_url,
-        lyric: audio.metadata.prompt,
-        audio_url: audio.audio_url,
-        video_url: audio.video_url,
-        created_at: audio.created_at,
-        model_name: audio.model_name,
-        status: audio.status,
-        gpt_description_prompt: audio.metadata.gpt_description_prompt,
-        prompt: audio.metadata.prompt,
-        type: audio.metadata.type,
-        tags: audio.metadata.tags,
-        negative_tags: audio.metadata.negative_tags,
-        duration: audio.metadata.duration
-      }));
-    }
+    if (options.lyrics_project_id)
+      payload.lyrics_project_id = options.lyrics_project_id;
+    Object.assign(payload, options.extra_payload || {});
+
+    logger.info({ task, mv: payload.mv, project_id: payload.project_id, persona_id: payload.persona_id }, 'generate/v2-web');
+    const response = await this.client.post(this.url('/api/generate/v2-web/'), payload, {
+      timeout: 20000
+    });
+
+    const clips = response.data?.clips || [];
+    const clipIds = clips.map((clip: any) => clip.id);
+    if (options.wait_audio && clipIds.length > 0)
+      return this.waitForFeedClips(clipIds);
+
+    return clips.map((clip: any) => this.normalizeClip(clip));
   }
 
   /**
    * Generates lyrics based on a given prompt.
-   * @param prompt The prompt for generating lyrics.
-   * @returns The generated lyrics text.
    */
   public async generateLyrics(prompt: string): Promise<string> {
     await this.keepAlive(false);
-    // Initiate lyrics generation
     const generateResponse = await this.client.post(
-      `${SunoApi.BASE_URL}/api/generate/lyrics/`,
+      this.url('/api/generate/lyrics/'),
       { prompt }
     );
     const generateId = generateResponse.data.id;
 
-    // Poll for lyrics completion
-    let lyricsResponse = await this.client.get(
-      `${SunoApi.BASE_URL}/api/generate/lyrics/${generateId}`
-    );
+    const startedAt = Date.now();
+    let lyricsResponse = await this.client.get(this.url(`/api/generate/lyrics/${generateId}`));
     while (lyricsResponse?.data?.status !== 'complete') {
-      await sleep(2); // Wait for 2 seconds before polling again
-      lyricsResponse = await this.client.get(
-        `${SunoApi.BASE_URL}/api/generate/lyrics/${generateId}`
-      );
+      if (Date.now() - startedAt > 120000)
+        throw new Error('Timed out waiting for lyrics generation');
+      await sleep(2);
+      lyricsResponse = await this.client.get(this.url(`/api/generate/lyrics/${generateId}`));
     }
 
-    // Return the generated lyrics text
     return lyricsResponse.data;
   }
 
   /**
-   * Extends an existing audio clip by generating additional content based on the provided prompt.
-   *
-   * @param audioId The ID of the audio clip to extend.
-   * @param prompt The prompt for generating additional content.
-   * @param continueAt Extend a new clip from a song at mm:ss(e.g. 00:30). Default extends from the end of the song.
-   * @param tags Style of Music.
-   * @param title Title of the song.
-   * @returns A promise that resolves to an AudioInfo object representing the extended audio clip.
+   * Extends an existing audio clip.
    */
   public async extendAudio(
     audioId: string,
@@ -827,44 +1112,77 @@ class SunoApi {
     negative_tags: string = '',
     title: string = '',
     model?: string,
-    wait_audio?: boolean
+    wait_audio?: boolean,
+    options: Partial<GenerateOptions> = {}
   ): Promise<AudioInfo[]> {
-    return this.generateSongs(prompt, true, tags, title, false, model, wait_audio, negative_tags, 'extend', audioId, continueAt);
+    return this.generateV2Web({
+      ...options,
+      prompt,
+      tags,
+      negative_tags,
+      title,
+      model,
+      wait_audio,
+      continue_clip_id: audioId,
+      continue_at: continueAt
+    });
   }
 
   /**
    * Generate stems for a song.
-   * @param song_id The ID of the song to generate stems for.
-   * @returns A promise that resolves to an AudioInfo object representing the generated stems.
+   * - `extract` (default): one stem (default "Lead Vocal") plus its complement ("Without Lead Vocal").
+   * - `twelve`: all twelve stem groups (Vocals, Backing_Vocals, Drums, Bass, Guitar, ...).
+   * - `legacy`: the old /api/edit/stems endpoint (vocals + instrumental).
    */
-  public async generateStems(song_id: string): Promise<AudioInfo[]> {
-    await this.keepAlive(false);
-    const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/edit/stems/${song_id}`, {}
-    );
+  public async generateStems(
+    song_id: string,
+    options: { mode?: StemMode; stem_name?: string; title?: string; wait_audio?: boolean } = {}
+  ): Promise<AudioInfo[]> {
+    const mode = options.mode || 'extract';
 
-    console.log('generateStems response:\n', response?.data);
-    return response.data.clips.map((clip: any) => ({
-      id: clip.id,
-      status: clip.status,
-      created_at: clip.created_at,
-      title: clip.title,
-      stem_from_id: clip.metadata.stem_from_id,
-      duration: clip.metadata.duration
+    if (mode === 'legacy') {
+      await this.keepAlive(false);
+      const response = await this.client.post(this.url(`/api/edit/stems/${song_id}`), {});
+      return response.data.clips.map((clip: any) => ({
+        id: clip.id,
+        status: clip.status,
+        created_at: clip.created_at,
+        title: clip.title,
+        stem_from_id: clip.metadata.stem_from_id,
+        duration: clip.metadata.duration
+      }));
+    }
+
+    const source: any = await this.getClip(song_id);
+    const stemName = options.stem_name || 'Lead Vocal';
+    const clips = await this.generateV2Web({
+      task: 'gen_stem',
+      title: options.title ?? source?.title ?? '',
+      model: STEM_MODEL,
+      make_instrumental: true,
+      continue_clip_id: song_id,
+      stem_type_id: STEM_TYPE_ID,
+      stem_type_group_name: mode === 'twelve' ? 'Twelve' : stemName,
+      stem_task: mode === 'twelve' ? 'twelve' : 'extract',
+      stem_name: mode === 'twelve' ? undefined : stemName,
+      wait_audio: options.wait_audio
+    });
+
+    return clips.map((clip: any) => ({
+      ...clip,
+      stem_from_id: clip.metadata?.stem_from_id,
+      stem_type_group_name: clip.metadata?.stem_type_group_name,
+      stem_task: clip.metadata?.stem_task
     }));
   }
 
-
   /**
    * Get the lyric alignment for a song.
-   * @param song_id The ID of the song to get the lyric alignment for.
-   * @returns A promise that resolves to an object containing the lyric alignment.
    */
   public async getLyricAlignment(song_id: string): Promise<object> {
     await this.keepAlive(false);
-    const response = await this.client.get(`${SunoApi.BASE_URL}/api/gen/${song_id}/aligned_lyrics/v2/`);
+    const response = await this.client.get(this.url(`/api/gen/${song_id}/aligned_lyrics/v2/`));
 
-    console.log(`getLyricAlignment ~ response:`, response.data);
     return response.data?.aligned_words.map((transcribedWord: any) => ({
       word: transcribedWord.word,
       start_s: transcribedWord.start_s,
@@ -876,20 +1194,9 @@ class SunoApi {
 
   /**
    * Processes the lyrics (prompt) from the audio metadata into a more readable format.
-   * @param prompt The original lyrics text.
-   * @returns The processed lyrics text.
    */
   private parseLyrics(prompt: string): string {
-    // Assuming the original lyrics are separated by a specific delimiter (e.g., newline), we can convert it into a more readable format.
-    // The implementation here can be adjusted according to the actual lyrics format.
-    // For example, if the lyrics exist as continuous text, it might be necessary to split them based on specific markers (such as periods, commas, etc.).
-    // The following implementation assumes that the lyrics are already separated by newlines.
-
-    // Split the lyrics using newline and ensure to remove empty lines.
     const lines = prompt.split('\n').filter((line) => line.trim() !== '');
-
-    // Reassemble the processed lyrics lines into a single string, separated by newlines between each line.
-    // Additional formatting logic can be added here, such as adding specific markers or handling special lines.
     return lines.join('\n');
   }
 
@@ -918,6 +1225,7 @@ class SunoApi {
       'audio/mpeg': 'mp3',
       'audio/mp3': 'mp3',
       'audio/wav': 'wav',
+      'audio/wave': 'wav',
       'audio/x-wav': 'wav',
       'audio/flac': 'flac',
       'audio/x-flac': 'flac',
@@ -941,9 +1249,9 @@ class SunoApi {
   private async feedV3(payload: object): Promise<any> {
     await this.keepAlive(false);
     const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/feed/v3`,
+      this.url('/api/feed/v3'),
       payload,
-      { timeout: 10000 }
+      { timeout: 15000 }
     );
 
     return response.data;
@@ -965,7 +1273,7 @@ class SunoApi {
 
   private async waitForFeedClips(
     clipIds: string[],
-    timeoutMs: number = 100000
+    timeoutMs: number = 180000
   ): Promise<any[]> {
     const startTime = Date.now();
     let lastResponse: any[] = [];
@@ -973,10 +1281,10 @@ class SunoApi {
     await sleep(3, 5);
     while (Date.now() - startTime < timeoutMs) {
       const response = await this.getFeedClipsByIds(clipIds);
-      const allCompleted = response.every(
+      const allCompleted = response.length > 0 && response.every(
         audio => audio.status === 'streaming' || audio.status === 'complete'
       );
-      const allError = response.every(audio => audio.status === 'error');
+      const allError = response.length > 0 && response.every(audio => audio.status === 'error');
 
       if (allCompleted || allError)
         return response;
@@ -989,183 +1297,79 @@ class SunoApi {
     return lastResponse;
   }
 
-  private async resolveWorkspace(
-    workspaceId?: string,
-    workspaceName?: string
-  ): Promise<WorkspaceInfo> {
-    if (workspaceId) {
-      return {
-        id: workspaceId,
-        name: workspaceName || workspaceId
-      };
-    }
-
-    if (!workspaceName)
-      throw new Error('workspace_id or workspace_name is required');
-
-    const workspaces = await this.listWorkspaces();
-    const normalizedName = workspaceName.trim().toLowerCase();
-    const workspace = workspaces.find(
-      item => item.name?.trim().toLowerCase() === normalizedName
-    );
-
-    if (!workspace)
-      throw new Error(`Workspace not found: ${workspaceName}`);
-
-    return workspace;
-  }
-
-  private buildAudioToAudioPayload({
-    sourceClipId,
-    mode,
-    prompt,
-    title,
-    tags,
-    negativeTags,
-    model,
-    projectId,
-    vocalGender,
-    createSessionToken
-  }: {
-    sourceClipId: string;
-    mode: AudioToAudioMode;
-    prompt: string;
-    title: string;
-    tags?: string;
-    negativeTags?: string;
-    model?: string;
-    projectId?: string;
-    vocalGender?: string;
-    createSessionToken?: string | null;
-  }) {
-    const taskByMode: Record<AudioToAudioMode, string> = {
-      cover: 'cover',
-      add_vocals: 'overpainting',
-      add_instrumental: 'underpainting'
-    };
-
-    const payload: any = {
-      project_id: projectId,
-      token: null,
-      task: taskByMode[mode],
-      generation_type: 'TEXT',
-      title,
-      tags,
-      negative_tags: negativeTags,
-      mv: model || DEFAULT_AUDIO_TO_AUDIO_MODEL,
-      prompt,
-      make_instrumental: false,
-      user_uploaded_images_b64: null,
-      metadata: {
-        web_client_pathname: '/create',
-        is_max_mode: false,
-        is_mumble: false,
-        create_mode: 'custom',
-        disable_volume_normalization: false,
-        is_remix: true
-      },
-      override_fields: [],
-      cover_clip_id: null,
-      cover_start_s: null,
-      cover_end_s: null,
-      persona_id: null,
-      artist_clip_id: null,
-      artist_start_s: null,
-      artist_end_s: null,
-      continue_clip_id: null,
-      continued_aligned_prompt: null,
-      continue_at: null,
-      transaction_uuid: randomUUID(),
-      overpainting_clip_id: null,
-      underpainting_clip_id: null
-    };
-
-    if (createSessionToken)
-      payload.metadata.create_session_token = createSessionToken;
-    if (vocalGender)
-      payload.metadata.vocal_gender = vocalGender;
-
+  private buildAudioToAudioOptions(mode: AudioToAudioMode, sourceClipId: string): Partial<GenerateOptions> {
     switch (mode) {
       case 'cover':
-        payload.cover_clip_id = sourceClipId;
-        break;
+        return { cover_clip_id: sourceClipId };
       case 'add_vocals':
-        payload.overpainting_clip_id = sourceClipId;
-        break;
+        return { task: 'overpainting', overpainting_clip_id: sourceClipId };
       case 'add_instrumental':
-        payload.underpainting_clip_id = sourceClipId;
-        break;
+        return { task: 'underpainting', underpainting_clip_id: sourceClipId };
     }
-
-    return payload;
   }
 
   /**
-   * Retrieves audio information for the given song IDs.
-   * @param songIds An optional array of song IDs to retrieve information for.
-   * @param page An optional page number to retrieve audio information from.
-   * @returns A promise that resolves to an array of AudioInfo objects.
+   * Retrieves audio information for the given song IDs (feed/v3).
+   * Without ids it returns the latest clips of the default workspace; `page` is the feed cursor.
    */
   public async get(
     songIds?: string[],
     page?: string | null
   ): Promise<AudioInfo[]> {
-    await this.keepAlive(false);
-    let url = new URL(`${SunoApi.BASE_URL}/api/feed/v2`);
-    if (songIds) {
-      url.searchParams.append('ids', songIds.join(','));
-    }
-    if (page) {
-      url.searchParams.append('page', page);
-    }
-    logger.info('Get audio status: ' + url.href);
-    const response = await this.client.get(url.href, {
-      // 10 seconds timeout
-      timeout: 10000
+    if (songIds && songIds.length > 0)
+      return this.getFeedClipsByIds(songIds);
+
+    const response = await this.feedV3({
+      cursor: page || null,
+      limit: 20,
+      filters: {
+        disliked: 'False',
+        trashed: 'False',
+        fromStudioProject: { presence: 'False' },
+        stem: { presence: 'False' },
+        stemComplement: 'False',
+        workspace: { presence: 'True', workspaceId: 'default' }
+      }
     });
-
-    const audios = response.data.clips;
-
-    return audios.map((audio: any) => ({
-      id: audio.id,
-      title: audio.title,
-      image_url: audio.image_url,
-      lyric: audio.metadata.prompt
-        ? this.parseLyrics(audio.metadata.prompt)
-        : '',
-      audio_url: audio.audio_url,
-      video_url: audio.video_url,
-      created_at: audio.created_at,
-      model_name: audio.model_name,
-      status: audio.status,
-      gpt_description_prompt: audio.metadata.gpt_description_prompt,
-      prompt: audio.metadata.prompt,
-      type: audio.metadata.type,
-      tags: audio.metadata.tags,
-      duration: audio.metadata.duration,
-      error_message: audio.metadata.error_message
-    }));
+    return (response.clips || []).map((clip: any) => this.normalizeClip(clip));
   }
+
+  /* ------------------------------------------------------------------ */
+  /* Uploads                                                             */
+  /* ------------------------------------------------------------------ */
 
   public async getUploadedAudio(uploadId: string): Promise<UploadedAudioInfo> {
     await this.keepAlive(false);
     const response = await this.client.get(
-      `${SunoApi.BASE_URL}/api/uploads/audio/${uploadId}/`
+      this.url(`/api/uploads/audio/${uploadId}/`)
     );
 
     return response.data;
   }
 
   public async createAudioUpload(
-    extension: string
+    extension: string,
+    uploadType: AudioUploadType = 'file_upload'
   ): Promise<AudioUploadInitInfo> {
     await this.keepAlive(false);
-    const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/uploads/audio/`,
-      { extension }
-    );
-
-    return response.data;
+    try {
+      const response = await this.client.post(
+        this.url('/api/uploads/audio/'),
+        { extension, upload_type: uploadType }
+      );
+      return response.data;
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const data = error?.response?.data;
+      if (status === 423)
+        throw classifyUploadFailure('upload_blocked_account', errorDetail(data), status, data);
+      if (status === 429)
+        throw classifyUploadFailure('upload_rate_limited', errorDetail(data), status, data);
+      const detail = errorDetail(data) || '';
+      if (data?.error_type === 'copyright_infringement' || /copyright|infring/i.test(detail))
+        throw classifyUploadFailure('upload_blocked_copyright', detail, status, data);
+      throw error;
+    }
   }
 
   public async uploadAudioToStorage(
@@ -1188,7 +1392,7 @@ class SunoApi {
     formData.append(
       'file',
       new Blob([fileBuffer], {
-        type: contentType || `audio/${extension}`
+        type: uploadData.fields?.['Content-Type'] || contentType || `audio/${extension}`
       }),
       filename
     );
@@ -1199,8 +1403,9 @@ class SunoApi {
     });
 
     if (!uploadResponse.ok) {
+      const body = await uploadResponse.text().catch(() => '');
       throw new Error(
-        `Failed to upload file to storage: ${uploadResponse.status} ${uploadResponse.statusText}`
+        `Failed to upload file to storage: ${uploadResponse.status} ${uploadResponse.statusText} ${body.slice(0, 300)}`
       );
     }
 
@@ -1213,27 +1418,72 @@ class SunoApi {
 
   public async finishAudioUpload(
     uploadId: string,
-    filename: string
+    filename: string,
+    options: { upload_type?: AudioUploadType; agreed_to_vip_upload_terms?: boolean } = {}
   ): Promise<any> {
     await this.keepAlive(false);
+    const uploadType = options.upload_type || 'file_upload';
+    const body: Record<string, any> = {
+      upload_type: uploadType,
+      upload_filename: filename
+    };
+    if (uploadType !== 'voice_recording')
+      body.agreed_to_vip_upload_terms = Boolean(options.agreed_to_vip_upload_terms);
+
     const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/uploads/audio/${uploadId}/upload-finish/`,
-      {
-        upload_type: 'file_upload',
-        upload_filename: filename
-      }
+      this.url(`/api/uploads/audio/${uploadId}/upload-finish/`),
+      body
     );
 
     return response.data;
   }
 
+  /**
+   * Polls an upload until it is processed. Throws a SunoUploadError (with error_type/category/copyright)
+   * when Suno rejects the file.
+   */
+  public async waitForUploadedAudio(
+    uploadId: string,
+    options: {
+      timeoutMs?: number;
+      intervalMs?: number;
+      onAttempt?: (info: UploadedAudioInfo) => Promise<void> | void;
+    } = {}
+  ): Promise<UploadedAudioInfo> {
+    const timeoutMs = options.timeoutMs ?? 300000;
+    const intervalMs = options.intervalMs ?? 4000;
+    const startedAt = Date.now();
+
+    while (true) {
+      const info = await this.getUploadedAudio(uploadId);
+      await options.onAttempt?.(info);
+
+      if (info.status === 'complete')
+        return info;
+      if (info.status === 'error')
+        throw classifyUploadFailure(info.error_type, info.error_message, undefined, info);
+      if (Date.now() - startedAt > timeoutMs)
+        throw new SunoUploadError({
+          message: 'Timed out waiting for Suno to finish processing the upload',
+          category: 'timeout',
+          retryable: true,
+          copyright: false,
+          detail: info
+        });
+
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      await this.keepAlive(true);
+    }
+  }
+
   public async initializeUploadClip(
-    uploadId: string
+    uploadId: string,
+    body: { user_reviewed_tags?: boolean; downbeats?: any } = {}
   ): Promise<InitializedUploadClipInfo> {
     await this.keepAlive(false);
     const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/uploads/audio/${uploadId}/initialize-clip/`,
-      {}
+      this.url(`/api/uploads/audio/${uploadId}/initialize-clip/`),
+      body
     );
 
     return response.data;
@@ -1244,51 +1494,112 @@ class SunoApi {
     payload: {
       title?: string;
       image_url?: string;
+      lyrics?: string;
       is_audio_upload_tos_accepted?: boolean;
+      [key: string]: any;
     }
   ): Promise<any> {
     await this.keepAlive(false);
     const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/gen/${clipId}/set_metadata/`,
+      this.url(`/api/gen/${clipId}/set_metadata/`),
       payload
     );
 
     return response.data;
   }
 
+  /**
+   * Accepts the description Suno inferred for an uploaded clip.
+   * The web app also sends the selected `audio_content_types` (e.g. ["Song Demo"]).
+   */
   public async acceptAudioDescription(
     clipId: string,
     payload: Record<string, any> = { gemini_description_accepted: true }
   ): Promise<any> {
     await this.keepAlive(false);
     const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/gen/${clipId}/set_audio_description`,
+      this.url(`/api/gen/${clipId}/set_audio_description`),
       payload
     );
 
     return response.data;
   }
 
+  public async uploadAudio(
+    fileBuffer: Buffer,
+    filename: string,
+    contentType?: string,
+    wait_audio: boolean = true,
+    uploadType: AudioUploadType = 'file_upload'
+  ): Promise<UploadedAudioInfo> {
+    const extension = this.getAudioExtension(filename, contentType);
+    const uploadData = await this.createAudioUpload(extension, uploadType);
+    await this.uploadAudioToStorage(uploadData, fileBuffer, filename, contentType);
+    await this.finishAudioUpload(uploadData.id, filename, { upload_type: uploadType });
+
+    if (!wait_audio)
+      return this.getUploadedAudio(uploadData.id);
+
+    return this.waitForUploadedAudio(uploadData.id);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Playlists                                                           */
+  /* ------------------------------------------------------------------ */
+
   public async createPlaylistDraft(
     name: string = 'Untitled'
   ): Promise<PlaylistInfo> {
     await this.keepAlive(false);
     const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/playlist/create/`,
+      this.url('/api/playlist/create/'),
       { name }
     );
 
     return response.data;
   }
 
+  public async getPlaylist(playlistId: string, page: number = 1): Promise<PlaylistInfo> {
+    await this.keepAlive(false);
+    const response = await this.client.get(this.url(`/api/playlist/${playlistId}/?page=${page}`));
+    return response.data;
+  }
+
+  /**
+   * Updates name/description/visibility (PATCH /api/playlist/v2/{id}, falls back to the legacy endpoint).
+   */
   public async setPlaylistMetadata(payload: {
     playlist_id: string;
     name: string;
     description?: string;
+    is_public?: boolean;
   }): Promise<PlaylistInfo> {
     await this.keepAlive(false);
+    try {
+      const metadata: Record<string, any> = { name: payload.name };
+      if (payload.is_public !== undefined)
+        metadata.is_public = payload.is_public;
+      const response = await this.client.patch(
+        this.url(`/api/playlist/v2/${payload.playlist_id}`),
+        { metadata, bio: { description: payload.description ?? '' } }
+      );
+      if (response.data?.success === false)
+        throw new Error(`Failed to update playlist: ${JSON.stringify(response.data?.errors || {})}`);
+
+      return {
+        id: payload.playlist_id,
+        name: payload.name,
+        description: payload.description ?? '',
+        ...(payload.is_public !== undefined ? { is_public: payload.is_public } : {}),
+        updated_fields: response.data?.updated_fields
+      };
+    } catch (error) {
+      if (!this.isNotFoundOrMethod(error))
+        throw error;
+    }
+
     const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/playlist/set_metadata`,
+      this.url('/api/playlist/set_metadata'),
       {
         playlist_id: payload.playlist_id,
         name: payload.name,
@@ -1301,14 +1612,17 @@ class SunoApi {
 
   public async createPlaylist(
     name: string,
-    description?: string
+    description?: string,
+    isPublic?: boolean
   ): Promise<PlaylistInfo> {
     const draft = await this.createPlaylistDraft('Untitled');
-    return this.setPlaylistMetadata({
+    const updated = await this.setPlaylistMetadata({
       playlist_id: draft.id,
       name,
-      description
+      description,
+      is_public: isPublic
     });
+    return { ...draft, ...updated, id: draft.id, name, description: description ?? '' };
   }
 
   public async getMyPlaylists(
@@ -1318,7 +1632,7 @@ class SunoApi {
   ): Promise<PlaylistListResponse> {
     await this.keepAlive(false);
     const response = await this.client.get(
-      `${SunoApi.BASE_URL}/api/playlist/me?page=${page}&show_trashed=${String(showTrashed)}&show_sharelist=${String(showSharelist)}`
+      this.url(`/api/playlist/me?page=${page}&show_trashed=${String(showTrashed)}&show_sharelist=${String(showSharelist)}`)
     );
 
     return response.data;
@@ -1336,13 +1650,40 @@ class SunoApi {
     update_type: 'add' | 'remove';
     clip_ids: string[];
     success: true;
+    successes?: string[];
+    failures?: any[];
   }> {
     await this.keepAlive(false);
+    const updateType = payload.update_type ?? 'add';
+    const clipIds = payload.metadata.clip_ids;
+
+    try {
+      const response = await this.client.post(
+        this.url(`/api/playlist/v2/${payload.playlist_id}/tracks/${updateType}`),
+        { clip_ids: clipIds }
+      );
+      const failures = response.data?.failures || [];
+      if (failures.length > 0 && !(response.data?.successes || []).length)
+        throw new Error(`Failed to ${updateType} playlist clips: ${JSON.stringify(failures)}`);
+
+      return {
+        playlist_id: payload.playlist_id,
+        update_type: updateType,
+        clip_ids: clipIds,
+        success: true,
+        successes: response.data?.successes,
+        failures
+      };
+    } catch (error) {
+      if (!this.isNotFoundOrMethod(error))
+        throw error;
+    }
+
     await this.client.post(
-      `${SunoApi.BASE_URL}/api/playlist/update_clips/`,
+      this.url('/api/playlist/update_clips/'),
       {
         playlist_id: payload.playlist_id,
-        update_type: payload.update_type ?? 'add',
+        update_type: updateType,
         metadata: payload.metadata,
         recommendation_metadata: payload.recommendation_metadata ?? {}
       }
@@ -1350,52 +1691,21 @@ class SunoApi {
 
     return {
       playlist_id: payload.playlist_id,
-      update_type: payload.update_type ?? 'add',
-      clip_ids: payload.metadata.clip_ids,
+      update_type: updateType,
+      clip_ids: clipIds,
       success: true
     };
   }
 
-  public async uploadAudio(
-    fileBuffer: Buffer,
-    filename: string,
-    contentType?: string,
-    wait_audio: boolean = true
-  ): Promise<UploadedAudioInfo> {
-    const extension = this.getAudioExtension(filename, contentType);
-    const uploadData = await this.createAudioUpload(extension);
-    await this.uploadAudioToStorage(uploadData, fileBuffer, filename, contentType);
-    await this.finishAudioUpload(uploadData.id, filename);
-
-    if (!wait_audio)
-      return this.getUploadedAudio(uploadData.id);
-
-    const startTime = Date.now();
-    let lastResponse = await this.getUploadedAudio(uploadData.id);
-
-    while (Date.now() - startTime < 120000) {
-      if (lastResponse.status === 'complete' || lastResponse.status === 'error')
-        return lastResponse;
-
-      await sleep(3, 5);
-      await this.keepAlive(true);
-      lastResponse = await this.getUploadedAudio(uploadData.id);
-    }
-
-    return lastResponse;
-  }
-
   /**
    * Retrieves information for a specific audio clip.
-   * @param clipId The ID of the audio clip to retrieve information for.
-   * @returns A promise that resolves to an object containing the audio clip information.
    */
   public async getClip(clipId: string): Promise<object> {
     await this.keepAlive(false);
 
     try {
       const response = await this.client.get(
-        `${SunoApi.BASE_URL}/api/clip/${clipId}`
+        this.url(`/api/clip/${clipId}`)
       );
 
       return this.normalizeClip(response.data);
@@ -1413,30 +1723,89 @@ class SunoApi {
     }
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Workspaces (projects)                                               */
+  /* ------------------------------------------------------------------ */
+
   public async listWorkspaces(page: number = 1): Promise<WorkspaceInfo[]> {
     await this.keepAlive(false);
     const response = await this.client.get(
-      `${SunoApi.BASE_URL}/api/project/me?page=${page}&sort=created_at&show_trashed=false&exclude_shared=false`,
-      { timeout: 10000 }
+      this.url(`/api/project/me?page=${page}&sort=max_created_at_last_updated_clip&show_trashed=false&exclude_shared=false`),
+      { timeout: 15000 }
     );
 
     return response.data.projects || [];
   }
 
+  public async listAllWorkspaces(maxPages: number = 20): Promise<WorkspaceInfo[]> {
+    const all: WorkspaceInfo[] = [];
+    const seen = new Set<string>();
+    for (let page = 1; page <= maxPages; page++) {
+      const items = await this.listWorkspaces(page);
+      const fresh = items.filter(item => !seen.has(item.id));
+      fresh.forEach(item => seen.add(item.id));
+      all.push(...fresh);
+      if (items.length === 0 || fresh.length === 0)
+        break;
+    }
+    return all;
+  }
+
+  public async createWorkspace(name: string, description: string = ''): Promise<WorkspaceInfo> {
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/project'), { name, description });
+    return response.data;
+  }
+
+  public async resolveWorkspace(
+    workspaceId?: string,
+    workspaceName?: string,
+    createIfMissing: boolean = false
+  ): Promise<WorkspaceInfo> {
+    if (workspaceId) {
+      return {
+        id: workspaceId,
+        name: workspaceName || workspaceId
+      };
+    }
+
+    if (!workspaceName)
+      throw new Error('workspace_id or workspace_name is required');
+
+    const normalizedName = workspaceName.trim().toLowerCase();
+    const workspaces = await this.listAllWorkspaces();
+    const workspace = workspaces.find(
+      item => item.name?.trim().toLowerCase() === normalizedName
+    );
+
+    if (workspace)
+      return workspace;
+
+    if (createIfMissing) {
+      logger.info(`Workspace "${workspaceName}" not found, creating it`);
+      return this.createWorkspace(workspaceName.trim());
+    }
+
+    const notFound = new Error(`Workspace not found: ${workspaceName}`);
+    (notFound as Error & { status?: number }).status = 404;
+    throw notFound;
+  }
+
   public async moveClipsToWorkspace(
     clipIds: string[],
     workspaceId?: string,
-    workspaceName?: string
+    workspaceName?: string,
+    createIfMissing: boolean = false
   ): Promise<{
     workspace_id: string;
     workspace_name?: string;
     clip_ids: string[];
   }> {
-    const workspace = await this.resolveWorkspace(workspaceId, workspaceName);
+    const workspace = await this.resolveWorkspace(workspaceId, workspaceName, createIfMissing);
 
     await this.keepAlive(false);
     await this.client.post(
-      `${SunoApi.BASE_URL}/api/project/${workspace.id}/clips`,
+      this.url(`/api/project/${workspace.id}/clips`),
       {
         update_type: 'add',
         metadata: {
@@ -1476,6 +1845,7 @@ class SunoApi {
         stem: {
           presence: 'False'
         },
+        stemComplement: 'False',
         workspace: {
           presence: 'True',
           workspaceId: workspace.id
@@ -1494,16 +1864,9 @@ class SunoApi {
   public async generateFromAudio(
     clipId: string,
     mode: AudioToAudioMode,
-    options?: {
-      prompt?: string;
-      title?: string;
-      tags?: string;
-      negative_tags?: string;
-      model?: string;
-      wait_audio?: boolean;
+    options?: Partial<GenerateOptions> & {
       workspace_id?: string;
       workspace_name?: string;
-      vocal_gender?: string;
     }
   ): Promise<any[]> {
     const sourceClip: any = await this.getClip(clipId);
@@ -1527,70 +1890,386 @@ class SunoApi {
       };
     }
 
-    const createSessionToken = await this.getSessionToken().catch(() => null);
-    const payload = this.buildAudioToAudioPayload({
-      sourceClipId: clipId,
-      mode,
+    const { workspace_id, workspace_name, wait_audio, ...generateOptions } = options || {};
+    const clips = await this.generateV2Web({
+      ...generateOptions,
+      ...this.buildAudioToAudioOptions(mode, clipId),
       prompt: options?.prompt ?? sourceMetadata.prompt ?? '',
       title: options?.title ?? defaultTitleByMode[mode],
       tags: options?.tags ?? sourceMetadata.tags ?? '',
-      negativeTags: options?.negative_tags ?? sourceMetadata.negative_tags ?? '',
-      model: options?.model,
-      projectId: workspace?.id,
-      vocalGender: options?.vocal_gender,
-      createSessionToken
+      negative_tags: options?.negative_tags ?? sourceMetadata.negative_tags ?? '',
+      model: options?.model || DEFAULT_AUDIO_TO_AUDIO_MODEL,
+      project_id: workspace?.id
     });
 
-    await this.keepAlive(false);
-    const response = await this.client.post(
-      `${SunoApi.BASE_URL}/api/generate/v2-web/`,
-      payload,
-      {
-        timeout: 10000
-      }
-    );
+    const clipIds = clips.map((clip: any) => clip.id);
 
-    const clipIds = (response.data.clips || []).map((clip: any) => clip.id);
-
+    // project_id already places the clips in the workspace; this is a best-effort safety net.
     if (workspace?.id && clipIds.length > 0) {
-      await this.moveClipsToWorkspace(clipIds, workspace.id);
+      await this.moveClipsToWorkspace(clipIds, workspace.id).catch(error =>
+        logger.warn(`Could not move clips to workspace ${workspace?.id}: ${error.message}`)
+      );
     }
 
-    if (options?.wait_audio)
+    if (wait_audio)
       return this.waitForFeedClips(clipIds);
 
-    return (response.data.clips || []).map((clip: any) => this.normalizeClip(clip));
+    return clips;
   }
 
-  public async get_credits(): Promise<object> {
-    await this.keepAlive(false);
-    const response = await this.client.get(
-      `${SunoApi.BASE_URL}/api/billing/info/`
-    );
-    return {
-      credits_left: response.data.total_credits_left,
-      period: response.data.period,
-      monthly_limit: response.data.monthly_limit,
-      monthly_usage: response.data.monthly_usage
-    };
-  }
+  /* ------------------------------------------------------------------ */
+  /* Personas & voices                                                   */
+  /* ------------------------------------------------------------------ */
 
   public async getPersonaPaginated(personaId: string, page: number = 1): Promise<PersonaResponse> {
     await this.keepAlive(false);
-    
-    const url = `${SunoApi.BASE_URL}/api/persona/get-persona-paginated/${personaId}/?page=${page}`;
-    
-    logger.info(`Fetching persona data: ${url}`);
-    
-    const response = await this.client.get(url, {
-      timeout: 10000 // 10 seconds timeout
-    });
+    const response = await this.client.get(
+      this.url(`/api/persona/get-persona-paginated/${personaId}/?page=${page}`),
+      { timeout: 10000 }
+    );
+    return response.data;
+  }
 
-    if (response.status !== 200) {
-      throw new Error('Error response: ' + response.statusText);
+  public async getPersona(personaId: string): Promise<any> {
+    await this.keepAlive(false);
+    const response = await this.client.get(this.url(`/api/persona/get-persona/${personaId}/`), {
+      timeout: 10000
+    });
+    return response.data;
+  }
+
+  /**
+   * Lists the account personas. Voices are personas with persona_type "vox".
+   */
+  public async listPersonas(page: number = 1, kind: 'mine' | 'loved' | 'followed' = 'mine'): Promise<any> {
+    await this.keepAlive(false);
+    const endpoint = {
+      mine: '/api/persona/get-personas/',
+      loved: '/api/persona/get-loved-personas/',
+      followed: '/api/persona/get-followed-personas/'
+    }[kind];
+    const response = await this.client.get(this.url(`${endpoint}?page=${page}`));
+    return response.data;
+  }
+
+  public async createPersona(body: Record<string, any>): Promise<any> {
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/persona/create/'), body);
+    return response.data;
+  }
+
+  /** Generates a cover image from a prompt (used for voices). Returns image_url, image_s3_id, upload_id. */
+  public async generatePromptImage(prompt: string): Promise<{ image_url: string; image_s3_id: string; upload_id?: string }> {
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/gen/prompt_image/'), { prompt }, { timeout: 60000 });
+    return response.data;
+  }
+
+  /** Phrase the user has to sing/say in the verification recording. */
+  public async getVoiceVerificationPhrase(language: string = 'en'): Promise<{ phrase_id: string; phrase_text: string }> {
+    await this.keepAlive(false);
+    const response = await this.client.get(
+      this.url(`/api/voice-verification/phrase/?language=${encodeURIComponent(language)}`)
+    );
+    return response.data;
+  }
+
+  /**
+   * Extracts the vocal stem of an uploaded voice recording. Returns { id, status, voice_recording_id }.
+   * Use recording_type "verification" for the verification phrase recording.
+   */
+  public async processVoiceStem(body: {
+    upload_id: string;
+    vocal_start_s?: number;
+    vocal_end_s?: number;
+    recording_type?: 'verification' | string;
+  }): Promise<{ id: string; status: string; voice_recording_id: string; vocal_start_s?: number; vocal_end_s?: number }> {
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/processed_clip/voice-vox-stem'), body);
+    return response.data;
+  }
+
+  public async createVoiceVerification(body: {
+    voice_recording_id: string;
+    verification_recording_id: string;
+    phrase_id: string;
+  }): Promise<any> {
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/voice-verification/'), body);
+    return response.data;
+  }
+
+  public async getVoiceVerification(verificationId: string): Promise<any> {
+    await this.keepAlive(false);
+    const response = await this.client.get(this.url(`/api/voice-verification/${verificationId}`));
+    return response.data;
+  }
+
+  public async waitForVoiceVerification(verificationId: string, timeoutMs: number = 180000): Promise<any> {
+    const startedAt = Date.now();
+    while (true) {
+      const verification = await this.getVoiceVerification(verificationId);
+      if (verification.status && verification.status !== 'pending' && verification.status !== 'processing')
+        return verification;
+      if (Date.now() - startedAt > timeoutMs)
+        return verification;
+      await sleep(2, 3);
+    }
+  }
+
+  private async waitForUploadIfPossible(uploadId: string, timeoutMs: number): Promise<UploadedAudioInfo | null> {
+    try {
+      return await this.waitForUploadedAudio(uploadId, { timeoutMs, intervalMs: 2000 });
+    } catch (error) {
+      if (error instanceof SunoUploadError && error.category !== 'timeout')
+        throw error;
+      logger.warn(`Voice upload ${uploadId} status unavailable, continuing: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Full "create voice" flow of the web app:
+   * voice recording upload -> vocal stem -> verification recording upload -> verification -> persona (vox).
+   */
+  public async createVoice(input: {
+    voice: { buffer: Buffer; filename: string; contentType?: string };
+    verification: { buffer: Buffer; filename: string; contentType?: string };
+    phrase_id: string;
+    name: string;
+    description?: string;
+    vocal_start_s?: number;
+    vocal_end_s?: number;
+    is_public?: boolean;
+    image_s3_id?: string;
+    image_prompt?: string;
+    user_input_styles?: string;
+    singer_skill_level?: string;
+  }): Promise<{ persona?: any; verification: any; voice_recording_id: string; verification_recording_id: string; steps: any[] }> {
+    const steps: any[] = [];
+
+    const voiceUpload = await this.createAudioUpload(this.getAudioExtension(input.voice.filename, input.voice.contentType), 'voice_recording');
+    await this.uploadAudioToStorage(voiceUpload, input.voice.buffer, input.voice.filename, input.voice.contentType);
+    await this.finishAudioUpload(voiceUpload.id, input.voice.filename, { upload_type: 'voice_recording' });
+    steps.push({ step: 'voice_upload', upload_id: voiceUpload.id });
+    await this.waitForUploadIfPossible(voiceUpload.id, 90000);
+
+    const voiceStem = await this.processVoiceStem({
+      upload_id: voiceUpload.id,
+      vocal_start_s: input.vocal_start_s ?? 0,
+      ...(input.vocal_end_s !== undefined ? { vocal_end_s: input.vocal_end_s } : {})
+    });
+    steps.push({ step: 'voice_stem', ...voiceStem });
+
+    const verificationUpload = await this.createAudioUpload(
+      this.getAudioExtension(input.verification.filename, input.verification.contentType),
+      'voice_recording'
+    );
+    await this.uploadAudioToStorage(verificationUpload, input.verification.buffer, input.verification.filename, input.verification.contentType);
+    await this.finishAudioUpload(verificationUpload.id, input.verification.filename, { upload_type: 'voice_recording' });
+    steps.push({ step: 'verification_upload', upload_id: verificationUpload.id });
+    await this.waitForUploadIfPossible(verificationUpload.id, 90000);
+
+    const verificationStem = await this.processVoiceStem({
+      upload_id: verificationUpload.id,
+      recording_type: 'verification'
+    });
+    steps.push({ step: 'verification_stem', ...verificationStem });
+
+    const created = await this.createVoiceVerification({
+      voice_recording_id: voiceStem.voice_recording_id,
+      verification_recording_id: verificationStem.voice_recording_id,
+      phrase_id: input.phrase_id
+    });
+    const verification = await this.waitForVoiceVerification(created.id);
+    steps.push({ step: 'verification', id: verification.id, status: verification.status, rejection_reason: verification.rejection_reason });
+
+    const result = {
+      verification,
+      voice_recording_id: voiceStem.voice_recording_id,
+      verification_recording_id: verificationStem.voice_recording_id,
+      steps
+    };
+
+    // Only "pending" and "rejected" have been observed; treat any other final state as success.
+    const failedStatuses = ['pending', 'processing', 'rejected', 'failed', 'error', 'expired'];
+    if (failedStatuses.includes(verification.status)) {
+      const error = new Error(
+        `Voice verification ${verification.status}${verification.rejection_reason ? `: ${verification.rejection_reason}` : ''}`
+      );
+      (error as any).status = 422;
+      (error as any).detail = result;
+      throw error;
     }
 
+    let imageS3Id = input.image_s3_id;
+    if (!imageS3Id && input.image_prompt) {
+      const image = await this.generatePromptImage(input.image_prompt).catch(() => null);
+      imageS3Id = image?.image_s3_id;
+    }
+
+    const persona = await this.createPersona({
+      name: input.name,
+      description: input.description ?? '',
+      persona_type: 'vox',
+      is_voice_recording: true,
+      voice_recording_id: voiceStem.voice_recording_id,
+      verification_id: verification.id,
+      vocal_start_s: input.vocal_start_s ?? voiceStem.vocal_start_s ?? 0,
+      ...(input.vocal_end_s ?? voiceStem.vocal_end_s ? { vocal_end_s: input.vocal_end_s ?? voiceStem.vocal_end_s } : {}),
+      is_public: input.is_public ?? false,
+      ...(imageS3Id ? { image_s3_id: imageS3Id } : {}),
+      ...(input.user_input_styles ? { user_input_styles: input.user_input_styles } : {}),
+      ...(input.singer_skill_level ? { singer_skill_level: input.singer_skill_level } : {})
+    });
+    steps.push({ step: 'persona', id: persona?.id });
+
+    return { ...result, persona };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Custom models                                                       */
+  /* ------------------------------------------------------------------ */
+
+  public async getCustomModelBases(): Promise<Array<{ base_model: string; name: string; is_default: boolean }>> {
+    await this.keepAlive(false);
+    const response = await this.client.get(this.url('/api/custom-model/bases/'));
+    return response.data?.options || [];
+  }
+
+  public async getPendingCustomModels(): Promise<{ has_pending: boolean; pending_models: Array<{ id: string; name: string }> }> {
+    await this.keepAlive(false);
+    const response = await this.client.get(this.url('/api/custom-model/pending/'));
     return response.data;
+  }
+
+  /**
+   * Trains a custom model from uploaded clips (the web app asks for at least 6 songs).
+   * Once ready it shows up in getModels() as `chirp-custom:<id>` and can be used as `model`.
+   */
+  public async createCustomModel(body: { clip_ids: string[]; name: string; base_model?: string }): Promise<{ id: string; status: string; base_model: string }> {
+    await this.keepAlive(false);
+    let baseModel = body.base_model;
+    if (!baseModel) {
+      const bases = await this.getCustomModelBases().catch(() => []);
+      baseModel = bases.find(base => base.is_default)?.base_model || DEFAULT_MODEL;
+    }
+    const response = await this.client.post(this.url('/api/custom-model/create/'), {
+      clip_ids: body.clip_ids,
+      name: body.name,
+      base_model: baseModel
+    });
+    return response.data;
+  }
+
+  public async archiveCustomModel(modelId: string): Promise<any> {
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/custom-model/archive/'), { id: modelId });
+    this.billingCache = undefined;
+    return response.data ?? { ok: true };
+  }
+
+  public async listCustomModels(): Promise<{ models: ModelInfo[]; pending: Array<{ id: string; name: string }> }> {
+    const [models, pending] = await Promise.all([
+      this.getModels(),
+      this.getPendingCustomModels().catch(() => ({ has_pending: false, pending_models: [] }))
+    ]);
+    return {
+      models: models.filter(model => model.is_custom),
+      pending: pending.pending_models || []
+    };
+  }
+
+  public async waitForCustomModel(modelId: string, timeoutMs: number = 15 * 60_000): Promise<ModelInfo | null> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const pending = await this.getPendingCustomModels();
+      if (!(pending.pending_models || []).some(model => model.id === modelId)) {
+        this.billingCache = undefined;
+        const models = await this.getModels();
+        return models.find(model => model.id === modelId || model.external_key === `chirp-custom:${modelId}`) || null;
+      }
+      await sleep(10, 15);
+    }
+    return null;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Downloads                                                           */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Unlocks a clip for download. NOTE: this may deduct download credits (credit_deducted: true).
+   */
+  public async authorizeDownload(itemId: string, itemType: string = 'clip'): Promise<{ ok: boolean; already_unlocked?: boolean; credit_deducted?: boolean }> {
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/download/authorize'), {
+      item_id: itemId,
+      item_type: itemType
+    });
+    return response.data;
+  }
+
+  public async getClipDownload(clipId: string, format: string = 'mp3'): Promise<{ ok: boolean; status: string; download_url?: string }> {
+    await this.keepAlive(false);
+    const response = await this.client.get(this.url(`/api/download/clip/${clipId}?format=${encodeURIComponent(format)}`));
+    return response.data;
+  }
+
+  public async downloadClip(
+    clipId: string,
+    options: { format?: string; authorize?: boolean; timeoutMs?: number } = {}
+  ): Promise<any> {
+    const format = options.format || 'mp3';
+    const authorization = options.authorize === false ? null : await this.authorizeDownload(clipId, 'clip');
+    const startedAt = Date.now();
+    let status = await this.getClipDownload(clipId, format);
+    while (status.status !== 'ready' && status.status !== 'error' && Date.now() - startedAt < (options.timeoutMs ?? 120000)) {
+      await sleep(2, 3);
+      status = await this.getClipDownload(clipId, format);
+    }
+    return { clip_id: clipId, format, authorization, ...status };
+  }
+
+  /** Requests the WAV conversion of a clip and waits for its URL. */
+  public async getWavFile(clipId: string, options: { timeoutMs?: number } = {}): Promise<{ clip_id: string; wav_file_url?: string; status: string }> {
+    await this.keepAlive(false);
+    const existing = await this.client.get(this.url(`/api/gen/${clipId}/wav_file/`));
+    if (existing.data?.wav_file_url)
+      return { clip_id: clipId, wav_file_url: existing.data.wav_file_url, status: 'ready' };
+
+    await this.client.post(this.url(`/api/gen/${clipId}/convert_wav/`));
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < (options.timeoutMs ?? 120000)) {
+      await sleep(2, 3);
+      const response = await this.client.get(this.url(`/api/gen/${clipId}/wav_file/`));
+      if (response.data?.wav_file_url)
+        return { clip_id: clipId, wav_file_url: response.data.wav_file_url, status: 'ready' };
+    }
+    return { clip_id: clipId, status: 'processing' };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Clip analysis                                                       */
+  /* ------------------------------------------------------------------ */
+
+  /** Musical key and downbeats computed by Suno ({ state, key } / { state, downbeats }). */
+  public async getClipAnalysis(clipId: string, wait: boolean = true): Promise<{ key?: any; downbeats?: any }> {
+    await this.keepAlive(false);
+    const fetchBoth = async () => {
+      const [key, downbeats] = await Promise.all([
+        this.client.get(this.url(`/api/gen/${clipId}/key`)).then(r => r.data),
+        this.client.get(this.url(`/api/gen/${clipId}/downbeats`)).then(r => r.data)
+      ]);
+      return { key, downbeats };
+    };
+    let result = await fetchBoth();
+    const startedAt = Date.now();
+    while (wait && (result.key?.state === 'running' || result.downbeats?.state === 'running') && Date.now() - startedAt < 60000) {
+      await sleep(2, 3);
+      result = await fetchBoth();
+    }
+    return result;
   }
 }
 
@@ -1609,23 +2288,58 @@ const decodeCookieValue = (value?: string | null) => {
   }
 };
 
-export const sunoApi = async (cookie?: string) => {
-  const resolvedCookie =
-    decodeCookieValue(cookie) || decodeCookieValue(process.env.SUNO_COOKIE);
+/**
+ * Returns an initialized client for a cookie. Instances are cached per cookie, so several
+ * accounts stay authenticated at the same time. Concurrent first calls share the same init.
+ */
+export const sunoApi = async (cookie?: string, accountId?: string) => {
+  let resolvedCookie = decodeCookieValue(cookie);
+  let resolvedAccountId = accountId;
+  if (!resolvedCookie) {
+    const account = resolveAccount(accountId);
+    resolvedCookie = account?.cookie || '';
+    resolvedAccountId = account?.id;
+  }
   if (!resolvedCookie) {
     logger.info('No cookie provided! Aborting...\nPlease provide `suno_cookie` in the request or set SUNO_COOKIE in the .env file.')
-    throw new Error('Please provide `suno_cookie` in the request or set SUNO_COOKIE in the .env file.');
+    throw new Error('Please provide `suno_cookie` in the request, add an account (/api/accounts) or set SUNO_COOKIE in the .env file.');
   }
 
-  // Check if the instance for this cookie already exists in the cache
   const cachedInstance = cache.get(resolvedCookie);
-  if (cachedInstance)
+  if (cachedInstance) {
+    if (resolvedAccountId && !cachedInstance.accountId)
+      cachedInstance.accountId = resolvedAccountId;
     return cachedInstance;
+  }
 
-  // If not, create a new instance and initialize it
-  const instance = await new SunoApi(resolvedCookie).init();
-  // Cache the initialized instance
-  cache.set(resolvedCookie, instance);
+  let pending = pendingInits.get(resolvedCookie);
+  if (!pending) {
+    pending = new SunoApi(resolvedCookie)
+      .init()
+      .then(instance => {
+        instance.accountId = resolvedAccountId;
+        cache.set(resolvedCookie, instance);
+        return instance;
+      })
+      .finally(() => pendingInits.delete(resolvedCookie));
+    pendingInits.set(resolvedCookie, pending);
+  }
 
-  return instance;
+  return pending;
 };
+
+/** Client for a registered account (id, label, email or handle). Without id, the default account. */
+export const sunoApiForAccount = async (accountId?: string | null) => {
+  const account = resolveAccount(accountId);
+  if (!account)
+    throw new Error('No Suno account configured. Add one with POST /api/accounts or set SUNO_COOKIE.');
+  return sunoApi(account.cookie, account.id);
+};
+
+/** Drops cached clients (e.g. after an account cookie was replaced or removed). */
+export const evictSunoApi = (account?: SunoAccount | { cookie?: string } | null) => {
+  if (account?.cookie)
+    cache.delete(account.cookie);
+};
+
+export type { SunoApi };

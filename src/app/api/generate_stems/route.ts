@@ -1,110 +1,47 @@
-import { NextResponse, NextRequest } from "next/server";
-import { missingSunoCookieResponse, resolveSunoCookie } from "@/lib/apiAuth";
-import { sunoApi } from "@/lib/SunoApi";
-import { corsHeaders } from "@/lib/utils";
+import { NextRequest } from "next/server";
+import { StemMode } from "@/lib/SunoApi";
+import { getClient } from "@/lib/routeHelpers";
+import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from "@/lib/utils";
 
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
+const validModes: StemMode[] = ['extract', 'twelve', 'legacy'];
+
+/**
+ * Body: { audio_id, mode?: 'extract' | 'twelve' | 'legacy', stem_name?: string, title?, wait_audio?, account? }
+ * - extract (default): `stem_name` (default "Lead Vocal") + its complement ("Without Lead Vocal").
+ *   Other names used by the web: Drum Kit, Bass, Lead Electric Guitar, Rhythm Electric Guitar, String Section, Synth...
+ * - twelve: 12 stems (Vocals, Backing_Vocals, Drums, Bass, Guitar, Keyboard, Percussion, Strings, Synth, FX, Brass, Woodwinds).
+ * - legacy: old /api/edit/stems endpoint.
+ */
 export async function POST(req: NextRequest) {
-  if (req.method === 'POST') {
-    try {
-      const body = await req.json();
-      const { audio_id } = body;
+  try {
+    const body = await req.json();
+    const { audio_id } = body;
+    const mode = (body.mode || 'extract') as StemMode;
 
-      if (!audio_id) {
-        return new NextResponse(JSON.stringify({ error: 'Audio ID is required' }), {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        });
-      }
+    if (!audio_id)
+      return jsonResponse({ error: 'Audio ID is required' }, 400);
+    if (!validModes.includes(mode))
+      return jsonResponse({ error: `mode must be one of: ${validModes.join(', ')}` }, 400);
 
-      const sunoCookie = resolveSunoCookie(req, body);
-      if (!sunoCookie)
-        return missingSunoCookieResponse();
+    const client = await getClient(req, body);
+    if (client instanceof Response)
+      return client;
 
-      const audioInfo = await (await sunoApi(sunoCookie))
-        .generateStems(audio_id);
-
-      return new NextResponse(JSON.stringify(audioInfo), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders
-        }
-      });
-    } catch (error: any) {
-      console.error('Error generating stems:', error);
-      
-      // Handle different types of errors
-      if (error.response) {
-        // Axios error with response
-        console.error('Response error:', JSON.stringify(error.response.data));
-        
-        if (error.response.status === 402) {
-          return new NextResponse(JSON.stringify({ 
-            error: error.response.data?.detail || 'Payment required' 
-          }), {
-            status: 402,
-            headers: {
-              'Content-Type': 'application/json',
-              ...corsHeaders
-            }
-          });
-        }
-        
-        return new NextResponse(JSON.stringify({ 
-          error: 'API Error: ' + (error.response.data?.detail || error.response.statusText || 'Unknown error')
-        }), {
-          status: error.response.status || 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        });
-      } else if (error.request) {
-        // Axios error without response (network error, timeout, etc.)
-        console.error('Network error:', error.message);
-        return new NextResponse(JSON.stringify({ 
-          error: 'Network error: Unable to connect to Suno API. Please check your internet connection and try again.' 
-        }), {
-          status: 503,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        });
-      } else {
-        // Other types of errors (timeout, etc.)
-        console.error('Other error:', error.message);
-        return new NextResponse(JSON.stringify({ 
-          error: 'Internal error: ' + (error.message || 'Unknown error occurred') 
-        }), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders
-          }
-        });
-      }
-    }
-  } else {
-    return new NextResponse('Method Not Allowed', {
-      headers: {
-        Allow: 'POST',
-        ...corsHeaders
-      },
-      status: 405
+    const audioInfo = await client.api.generateStems(audio_id, {
+      mode,
+      stem_name: body.stem_name,
+      title: body.title,
+      wait_audio: parseBoolean(body.wait_audio)
     });
+    return jsonResponse(audioInfo);
+  } catch (error: any) {
+    return errorResponse(error, 'Error generating stems');
   }
 }
 
-
-export async function OPTIONS(request: Request) {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders
-  });
+export async function OPTIONS() {
+  return optionsResponse();
 }
