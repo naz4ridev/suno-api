@@ -1576,6 +1576,31 @@ class SunoApi {
   }
 
   /**
+   * Playlist metadata plus ALL its clips (walks every page of /api/playlist/{id}/).
+   */
+  public async getPlaylistWithAllClips(playlistId: string, maxPages: number = 40): Promise<PlaylistInfo & { clips: any[] }> {
+    const first = await this.getPlaylist(playlistId, 1);
+    const extract = (data: any): any[] =>
+      (data?.playlist_clips || data?.clips || [])
+        .map((item: any) => item?.clip ?? item)
+        .filter((clip: any) => clip?.id);
+    const clips: any[] = extract(first);
+    const seen = new Set(clips.map(clip => clip.id));
+    const total = Number(first?.num_total_results ?? clips.length);
+
+    for (let page = 2; page <= maxPages && seen.size < total; page++) {
+      const fresh = extract(await this.getPlaylist(playlistId, page)).filter(clip => !seen.has(clip.id));
+      if (fresh.length === 0)
+        break;
+      fresh.forEach(clip => seen.add(clip.id));
+      clips.push(...fresh);
+    }
+
+    const { playlist_clips, ...meta } = first as any;
+    return { ...meta, clips: clips.map(clip => this.normalizeClip(clip)) };
+  }
+
+  /**
    * Updates name/description/visibility (PATCH /api/playlist/v2/{id}, falls back to the legacy endpoint).
    */
   public async setPlaylistMetadata(payload: {
