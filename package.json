@@ -33,6 +33,7 @@
     "react-dom": "^18",
     "react-markdown": "^9.0.1",
     "rebrowser-playwright-core": "^1.49.1",
+    "socks-proxy-agent": "^8.0.5",
     "swagger-ui-react": "^5.18.2",
     "tough-cookie": "^4.1.4",
     "user-agents": "^1.1.156",

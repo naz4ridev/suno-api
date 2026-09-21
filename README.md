@@ -263,6 +263,11 @@ suno-api keeps one authenticated client per account, so several Suno accounts ca
 - Set `SUNO_ACCOUNTS_ADMIN_TOKEN` to require the `x-admin-token` header on account changes.
 - `/api/upload_file` works store the `account_id` that ran them (never the cookie).
 
+### Internal deployment options
+
+- `SUNO_API_KEY`: when set, every `/api/*` and `/v1/*` request must send `x-api-key: <key>` (or `Authorization: Bearer <key>`). `/api/health` stays open.
+- `SUNO_PROXY_URL`: SOCKS5 egress for all outbound traffic (Suno, Clerk, S3 uploads and the captcha browser), e.g. `socks5h://tailscale-egress:1055`. Requests fail if the proxy is down (no fallback to the server IP). Check it with `GET /api/health?egress=1`.
+
 ### Endpoints added in the Sep 2026 update
 
 ```bash

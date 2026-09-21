@@ -11,6 +11,7 @@ import { createCursor, Cursor } from 'ghost-cursor-playwright';
 import { promises as fs } from 'fs';
 import path from 'node:path';
 import { resolveAccount, SunoAccount } from '@/lib/accounts';
+import { browserProxy, proxiedAxiosConfig } from '@/lib/egress';
 
 // sunoApi instance caching (one instance per cookie, so several accounts can be authenticated at once)
 const globalForSunoApi = global as unknown as {
@@ -359,6 +360,7 @@ class SunoApi {
     this.cookies = cookie.parse(cookies);
     this.deviceId = this.cookies.ajs_anonymous_id || randomUUID();
     this.client = axios.create({
+      ...proxiedAxiosConfig(),
       withCredentials: true,
       headers: {
         'Affiliate-Id': 'undefined',
@@ -608,6 +610,9 @@ class SunoApi {
       '--disable-extensions',
       '--disable-infobars'
     ];
+    const proxy = browserProxy();
+    if (proxy) // WebRTC does not go through the proxy: avoid leaking the server IP
+      args.push('--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
     // Check for GPU acceleration, as it is recommended to turn it off for Docker
     if (yn(process.env.BROWSER_DISABLE_GPU, { default: false }))
       args.push('--enable-unsafe-swiftshader',
@@ -615,7 +620,8 @@ class SunoApi {
         '--disable-setuid-sandbox');
     const browser = await this.getBrowserType().launch({
       args,
-      headless: yn(process.env.BROWSER_HEADLESS, { default: true })
+      headless: yn(process.env.BROWSER_HEADLESS, { default: true }),
+      ...(proxy ? { proxy } : {})
     });
     const context = await browser.newContext({ userAgent: this.userAgent, locale: process.env.BROWSER_LOCALE, viewport: null });
     const cookies = [];
@@ -1397,20 +1403,24 @@ class SunoApi {
       filename
     );
 
-    const uploadResponse = await fetch(uploadData.url, {
-      method: 'POST',
-      body: formData
+    // axios (not fetch) so the upload goes through the same egress proxy as the rest of the traffic
+    const uploadResponse = await axios.post(uploadData.url, formData, {
+      ...proxiedAxiosConfig(),
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      timeout: 10 * 60_000,
+      validateStatus: () => true
     });
 
-    if (!uploadResponse.ok) {
-      const body = await uploadResponse.text().catch(() => '');
+    if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
+      const body = typeof uploadResponse.data === 'string' ? uploadResponse.data : JSON.stringify(uploadResponse.data ?? '');
       throw new Error(
         `Failed to upload file to storage: ${uploadResponse.status} ${uploadResponse.statusText} ${body.slice(0, 300)}`
       );
     }
 
     return {
-      ok: uploadResponse.ok,
+      ok: true,
       status: uploadResponse.status,
       statusText: uploadResponse.statusText
     };
