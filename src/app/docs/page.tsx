@@ -43,6 +43,8 @@ export default function Docs() {
 - \`/api/playlist/set_metadata\`: Rename or update playlist metadata
 - \`/api/playlist/me\`: List your playlists
 - \`/api/playlist/update_clips\`: Add or remove clips from a playlist
+- \`/api/playlist/reorder\`: Move clips to given positions in a playlist
+- \`/api/trash\`: Move clips to Suno's trash (\`trash: false\` restores them)
 - \`/api/move_clip\`: Move one or more clips to a workspace by id or name
 - \`/api/workspace_feed\`: Read the feed/clips of a workspace by id or name
 - \`/api/generate_from_audio\`: Generate from an existing audio clip in cover, add vocals or add instrumental mode

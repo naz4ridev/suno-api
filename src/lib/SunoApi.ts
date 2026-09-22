@@ -1733,6 +1733,31 @@ class SunoApi {
   }
 
   /**
+   * Reorders tracks inside a playlist: POST /api/playlist/v2/{id}/tracks/reorder-by-index.
+   */
+  public async reorderPlaylistClips(
+    playlistId: string,
+    positions: Array<{ clip_id: string; index: number }>
+  ): Promise<{ success: boolean; updated_fields?: string[]; errors?: Record<string, any> }> {
+    await this.keepAlive(false);
+    const response = await this.client.post(
+      this.url(`/api/playlist/v2/${playlistId}/tracks/reorder-by-index`),
+      { positions }
+    );
+    return response.data;
+  }
+
+  /**
+   * Moves clips to the trash (trash=true) or restores them (trash=false): POST /api/gen/trash.
+   * Trashed clips can still be restored from Suno's trash; this is not a permanent delete.
+   */
+  public async trashClips(clipIds: string[], trash: boolean = true): Promise<{ ids: string[]; is_trashed: boolean }> {
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/gen/trash'), { trash, clip_ids: clipIds });
+    return response.data;
+  }
+
+  /**
    * Retrieves information for a specific audio clip.
    */
   public async getClip(clipId: string): Promise<object> {
