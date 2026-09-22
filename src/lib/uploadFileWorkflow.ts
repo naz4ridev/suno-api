@@ -175,12 +175,25 @@ async function updateWork(
   return work;
 }
 
+function hostOf(url: unknown) {
+  if (typeof url !== 'string') return undefined;
+  try {
+    return new URL(url).host;
+  } catch {
+    return undefined;
+  }
+}
+
 function buildErrorDetail(error: any) {
   const detail: Record<string, any> = {
     message: error?.message || 'Unknown error',
     status: error?.status || error?.response?.status,
     data: error?.response?.data,
-    detail: error?.detail
+    detail: error?.detail,
+    // Network failures only say "fetch failed"; the cause code (ECONNRESET, ETIMEDOUT…) and the
+    // host tell whether Suno, its storage or our egress proxy failed.
+    code: error?.code || error?.cause?.code,
+    host: hostOf(error?.config?.url || error?.request?.url || error?.cause?.url)
   };
   if (error instanceof SunoUploadError) {
     detail.error_type = error.error_type;
