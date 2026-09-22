@@ -1651,13 +1651,20 @@ class SunoApi {
     isPublic?: boolean
   ): Promise<PlaylistInfo> {
     const draft = await this.createPlaylistDraft('Untitled');
-    const updated = await this.setPlaylistMetadata({
-      playlist_id: draft.id,
-      name,
-      description,
-      is_public: isPublic
-    });
-    return { ...draft, ...updated, id: draft.id, name, description: description ?? '' };
+    let finalDescription = description ?? '';
+    let updated;
+    try {
+      updated = await this.setPlaylistMetadata({ playlist_id: draft.id, name, description, is_public: isPublic });
+    } catch (error: any) {
+      // Suno's moderation can reject the description (e.g. links): keep the same draft, without one,
+      // instead of leaving an "Untitled" playlist behind and making the caller create another.
+      const detail = JSON.stringify(error?.response?.data ?? error?.message ?? '');
+      if (!description || !/moderation/i.test(detail))
+        throw error;
+      finalDescription = '';
+      updated = await this.setPlaylistMetadata({ playlist_id: draft.id, name, description: '', is_public: isPublic });
+    }
+    return { ...draft, ...updated, id: draft.id, name, description: finalDescription };
   }
 
   public async getMyPlaylists(
