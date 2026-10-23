@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1 
                                                                                                                                                                                                     
-FROM node:lts-bookworm AS builder                                                                                       
+FROM node:24.22.1-bookworm AS builder                                                                                       
 WORKDIR /src                                                                                                            
 ARG APP_BASE_PATH=
 ENV APP_BASE_PATH=${APP_BASE_PATH}
@@ -10,7 +10,7 @@ COPY scripts ./scripts
 COPY . .                                                                                                               
 RUN npm run build                                                                                                       
                                                                                                                     
-FROM node:lts-bookworm                                                                                                  
+FROM node:24.22.1-bookworm                                                                                                  
 WORKDIR /app                                                                                                            
 ARG APP_BASE_PATH=
 ENV APP_BASE_PATH=${APP_BASE_PATH}
