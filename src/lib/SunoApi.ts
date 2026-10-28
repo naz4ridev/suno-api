@@ -3,7 +3,7 @@ import pino from 'pino';
 import yn from 'yn';
 import { isPage, sleep, waitForRequests } from '@/lib/utils';
 import * as cookie from 'cookie';
-import { randomUUID } from 'node:crypto';
+import { createDecipheriv, createHash, randomUUID } from 'node:crypto';
 import { Solver } from '@2captcha/captcha-solver';
 import { paramsCoordinates } from '@2captcha/captcha-solver/dist/structs/2captcha';
 import { BrowserContext, Page, Locator, chromium, firefox } from 'rebrowser-playwright-core';
@@ -1788,6 +1788,51 @@ class SunoApi {
       (notFoundError as Error & { status?: number }).status = 404;
       throw notFoundError;
     }
+  }
+
+  /** The same playable M4A that Suno's web player receives for an accessible clip. */
+  public async getPlaybackAudio(clipId: string): Promise<Buffer> {
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(clipId))
+      throw new Error('Invalid clip id');
+    await this.keepAlive(false);
+    const clip = await this.getClip(clipId) as AudioInfo;
+    const media = clip.media_urls?.find((entry: any) => entry?.delivery === 'progressive' && entry?.encoding === '1.0.0' && typeof entry?.url === 'string');
+    if (!media) throw new Error('This clip has no playable audio');
+    const mediaUrl = new URL(media.url);
+    if (mediaUrl.protocol !== 'https:' || mediaUrl.port || mediaUrl.username || mediaUrl.password
+      || !mediaUrl.hostname.endsWith('.cloudfront.net') || !mediaUrl.pathname.includes(clipId))
+      throw new Error('Invalid playback media URL');
+    if (!this.currentToken) throw new Error('Missing Suno session token');
+
+    const rights = await this.client.post(this.url('/api/mango/rights'), {
+      content_params: { content_id: clipId, content_type: 'clip' }
+    }, { timeout: 30_000 });
+    if (typeof rights.data?.key !== 'string' || typeof rights.data?.iv !== 'string')
+      throw new Error('Suno did not provide playback rights for this clip');
+
+    const master = createHash('sha256').update(this.currentToken).digest();
+    const unwrap = (value: string) => {
+      const wrapped = Buffer.from(value, 'base64');
+      if (wrapped.length < 29) throw new Error('Invalid playback key');
+      const decipher = createDecipheriv('aes-256-gcm', master, wrapped.subarray(0, 12));
+      decipher.setAAD(Buffer.from(clipId));
+      decipher.setAuthTag(wrapped.subarray(-16));
+      return Buffer.concat([decipher.update(wrapped.subarray(12, -16)), decipher.final()]);
+    };
+    const key = unwrap(rights.data.key);
+    const counter = unwrap(rights.data.iv);
+    if (key.length !== 16 || counter.length !== 16) throw new Error('Invalid playback key size');
+
+    const encrypted = await axios.get(mediaUrl.toString(), {
+      responseType: 'arraybuffer', timeout: 120_000, maxContentLength: 100_000_000,
+      ...proxiedAxiosConfig()
+    });
+    const cipherBytes = Buffer.from(encrypted.data);
+    if (!cipherBytes.length || cipherBytes.length > 100_000_000) throw new Error('Invalid playback audio size');
+    const decipher = createDecipheriv('aes-128-ctr', key, counter);
+    const plain = Buffer.concat([decipher.update(cipherBytes), decipher.final()]);
+    if (plain.toString('ascii', 4, 8) !== 'ftyp') throw new Error('The playback audio could not be decoded');
+    return plain;
   }
 
   /* ------------------------------------------------------------------ */
