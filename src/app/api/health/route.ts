@@ -1,6 +1,7 @@
 import { listAccounts } from '@/lib/accounts';
 import { describeEgress, proxyUrl } from '@/lib/egress';
 import { jsonResponse } from '@/lib/utils';
+import packageInfo from '../../../../package.json';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,7 @@ export async function GET(req: Request) {
     accounts = -1;
   }
 
-  const body: Record<string, any> = { ok: true, accounts, proxy: proxyUrl ? proxyUrl.replace(/\/\/.*@/, '//***@') : null };
+  const body: Record<string, any> = { ok: true, version: packageInfo.version, accounts, proxy: proxyUrl ? proxyUrl.replace(/\/\/.*@/, '//***@') : null };
   if (new URL(req.url).searchParams.get('egress')) {
     try {
       body.egress = await describeEgress();

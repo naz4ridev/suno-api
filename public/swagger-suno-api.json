@@ -3,7 +3,7 @@
   "info": {
     "title": "suno-api",
     "description": "Use API to call the music generation service of Suno.ai and easily integrate it into agents like GPTs.\n\n**Multi-account**: every endpoint accepts `account` (body/form/query) or the `x-suno-account` header (account id, label, email or handle) to pick the Suno account. Without it the default account is used. `suno_cookie` still overrides everything.",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "tags": [
     {
@@ -3053,6 +3053,174 @@
         "responses": {
           "200": {
             "description": "ok"
+          }
+        }
+      }
+    },
+    "/api/stems": {
+      "get": {
+        "summary": "List existing stems and alternatives without generating or unlocking",
+        "tags": [
+          "Stems"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "account",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Native stems, current_page (zero based), pages"
+          },
+          "400": {
+            "description": "Invalid clip UUID or page"
+          }
+        }
+      }
+    },
+    "/api/stems/render": {
+      "post": {
+        "summary": "Render an official WAV stem ZIP with native Suno Studio timing and warp state",
+        "tags": [
+          "Stems"
+        ],
+        "description": "Uses /api/studio/render-state-multitrack. Unlock the source song once, shared by its stems. authorize defaults to false; true may consume one download credit. The caller supplies native Studio state; this endpoint does not calculate tempo or warp markers. All referenced clips are checked against source_clip_id before unlocking.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "source_clip_id",
+                  "render"
+                ],
+                "properties": {
+                  "source_clip_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "account": {
+                    "type": "string"
+                  },
+                  "authorize": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "render": {
+                    "type": "object",
+                    "required": [
+                      "format",
+                      "start_beats",
+                      "end_beats",
+                      "state"
+                    ],
+                    "properties": {
+                      "format": {
+                        "type": "string",
+                        "enum": [
+                          "wav_s16"
+                        ]
+                      },
+                      "start_beats": {
+                        "type": "number"
+                      },
+                      "end_beats": {
+                        "type": "number"
+                      },
+                      "state": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "download_url and optional unlock authorization; URL is signed and temporary"
+          },
+          "400": {
+            "description": "Invalid native render or stems from another source"
+          }
+        }
+      }
+    },
+    "/api/stems/catalogue": {
+      "get": {
+        "tags": [
+          "Stems"
+        ],
+        "summary": "Instrument catalogue snapshot",
+        "description": "Versioned web catalogue; internal names are request values. Beta is a UI flag, not a measured quality score. No Suno request.",
+        "responses": {
+          "200": {
+            "description": "Snapshot, capture timestamp, sources and instruments (name, label, group, beta)"
+          }
+        }
+      }
+    },
+    "/api/stems/prefetch": {
+      "post": {
+        "tags": [
+          "Stems"
+        ],
+        "summary": "Prepare existing stem data",
+        "description": "Native preparation hint; not a generation request and not required before generating. No download unlock.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "source_clip_id"
+                ],
+                "properties": {
+                  "source_clip_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "account": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Native result, e.g. outcome: not_assigned"
+          },
+          "400": {
+            "description": "Invalid input"
           }
         }
       }

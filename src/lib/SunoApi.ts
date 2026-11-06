@@ -3,7 +3,7 @@ import pino from 'pino';
 import yn from 'yn';
 import { isPage, sleep, waitForRequests } from '@/lib/utils';
 import * as cookie from 'cookie';
-import { createDecipheriv, createHash, randomUUID } from 'node:crypto';
+import { randomUUID, webcrypto } from 'node:crypto';
 import { Solver } from '@2captcha/captcha-solver';
 import { paramsCoordinates } from '@2captcha/captcha-solver/dist/structs/2captcha';
 import { BrowserContext, Page, Locator, chromium, firefox } from 'rebrowser-playwright-core';
@@ -12,6 +12,9 @@ import { promises as fs } from 'fs';
 import path from 'node:path';
 import { resolveAccount, SunoAccount } from '@/lib/accounts';
 import { browserProxy, proxiedAxiosConfig } from '@/lib/egress';
+// Cripto/URL/validación de audio compartidos con la extensión. Copia GENERADA desde suno2daw/packages/suno-core: no editar.
+import { createPlaybackCrypto, isClipId, selectPlaybackUrl } from '@/lib/vendor/suno-core.generated';
+import { stemRenderClipIds, assertStemRenderSource } from '@/lib/stemRender';
 
 // sunoApi instance caching (one instance per cookie, so several accounts can be authenticated at once)
 const globalForSunoApi = global as unknown as {
@@ -1182,6 +1185,48 @@ class SunoApi {
     }));
   }
 
+  /** Existing stems, preserving native metadata, alternatives and complements. No generation or unlock. */
+  public async listStems(songId: string, page = 0): Promise<{ pages: number; current_page: number; stems: any[] }> {
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(songId))
+      throw Object.assign(new Error('Invalid clip id'), { status: 400 });
+    if (!Number.isSafeInteger(page) || page < 0)
+      throw Object.assign(new Error('Invalid stem page'), { status: 400 });
+    await this.keepAlive(false);
+    const count = await this.client.get(this.url(`/api/clip/${songId}/stems/pages`));
+    const pages = count.data?.pages;
+    if (!Number.isSafeInteger(pages) || pages < 0)
+      throw new Error('Unexpected stem page count from Suno');
+    if (pages === 0) return { pages: 0, current_page: 0, stems: [] };
+    if (page >= pages) throw Object.assign(new Error('Stem page out of range'), { status: 400 });
+    const response = await this.client.get(this.url(`/api/clip/${songId}/stems`), { params: { page } });
+    if (!Array.isArray(response.data?.stems)) throw new Error('Unexpected stems response from Suno');
+    return { pages, current_page: response.data.current_page ?? page, stems: response.data.stems };
+  }
+
+  /** Official ZIP export with the caller's native Studio timing/warp state. */
+  public async renderStems(sourceId: string, render: Record<string, any>, authorize = false): Promise<any> {
+    const ids = stemRenderClipIds(sourceId, render);
+    const clips = await this.getFeedClipsByIds(ids);
+    assertStemRenderSource(sourceId, ids, clips);
+    const authorization = authorize ? await this.authorizeDownload(sourceId, 'clip') : null;
+    if (authorization && authorization.ok !== true)
+      throw Object.assign(new Error('Suno did not authorize the source download'), { status: 403 });
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url('/api/studio/render-state-multitrack'), {
+      ...render, export_surface: 'stems_modal'
+    }, { timeout: 180_000 });
+    if (typeof response.data?.download_url !== 'string') throw new Error('Suno did not return a stem download URL');
+    return { source_clip_id: sourceId, authorization, ...response.data };
+  }
+
+  /** Native preparation hint. Does not submit a generation or unlock downloads. */
+  public async prefetchStems(songId: string): Promise<any> {
+    if (!isClipId(songId)) throw Object.assign(new Error('Invalid clip id'), { status: 400 });
+    await this.keepAlive(false);
+    const response = await this.client.post(this.url(`/api/clip/${songId}/stems/prefetch`), {});
+    return response.data;
+  }
+
   /**
    * Get the lyric alignment for a song.
    */
@@ -1792,47 +1837,30 @@ class SunoApi {
 
   /** The same playable M4A that Suno's web player receives for an accessible clip. */
   public async getPlaybackAudio(clipId: string): Promise<Buffer> {
-    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(clipId))
+    if (!isClipId(clipId))
       throw new Error('Invalid clip id');
     await this.keepAlive(false);
     const clip = await this.getClip(clipId) as AudioInfo;
-    const media = clip.media_urls?.find((entry: any) => entry?.delivery === 'progressive' && entry?.encoding === '1.0.0' && typeof entry?.url === 'string');
-    if (!media) throw new Error('This clip has no playable audio');
-    const mediaUrl = new URL(media.url);
-    if (mediaUrl.protocol !== 'https:' || mediaUrl.port || mediaUrl.username || mediaUrl.password
-      || !mediaUrl.hostname.endsWith('.cloudfront.net') || !mediaUrl.pathname.includes(clipId))
-      throw new Error('Invalid playback media URL');
+    // Misma política de URL que antes (progressive/1.0.0, https, *.cloudfront.net, sin puerto ni credenciales,
+    // id del clip en la ruta). Aquí NO se permite el CDN heredado: sin media_urls no hay audio reproducible.
+    const mediaUrl = selectPlaybackUrl(clip, { clipId });
     if (!this.currentToken) throw new Error('Missing Suno session token');
 
     const rights = await this.client.post(this.url('/api/mango/rights'), {
       content_params: { content_id: clipId, content_type: 'clip' }
     }, { timeout: 30_000 });
-    if (typeof rights.data?.key !== 'string' || typeof rights.data?.iv !== 'string')
-      throw new Error('Suno did not provide playback rights for this clip');
+    const playback = createPlaybackCrypto({ subtle: webcrypto.subtle });
+    const material = await playback.unwrapPlaybackRights(
+      rights.data, clipId, await playback.deriveMasterKey(this.currentToken));
 
-    const master = createHash('sha256').update(this.currentToken).digest();
-    const unwrap = (value: string) => {
-      const wrapped = Buffer.from(value, 'base64');
-      if (wrapped.length < 29) throw new Error('Invalid playback key');
-      const decipher = createDecipheriv('aes-256-gcm', master, wrapped.subarray(0, 12));
-      decipher.setAAD(Buffer.from(clipId));
-      decipher.setAuthTag(wrapped.subarray(-16));
-      return Buffer.concat([decipher.update(wrapped.subarray(12, -16)), decipher.final()]);
-    };
-    const key = unwrap(rights.data.key);
-    const counter = unwrap(rights.data.iv);
-    if (key.length !== 16 || counter.length !== 16) throw new Error('Invalid playback key size');
-
-    const encrypted = await axios.get(mediaUrl.toString(), {
+    const encrypted = await axios.get(mediaUrl, {
       responseType: 'arraybuffer', timeout: 120_000, maxContentLength: 100_000_000,
       ...proxiedAxiosConfig()
     });
     const cipherBytes = Buffer.from(encrypted.data);
     if (!cipherBytes.length || cipherBytes.length > 100_000_000) throw new Error('Invalid playback audio size');
-    const decipher = createDecipheriv('aes-128-ctr', key, counter);
-    const plain = Buffer.concat([decipher.update(cipherBytes), decipher.final()]);
-    if (plain.toString('ascii', 4, 8) !== 'ftyp') throw new Error('The playback audio could not be decoded');
-    return plain;
+    const plain = await playback.decryptPlayback(cipherBytes, material);
+    return Buffer.from(plain.buffer, plain.byteOffset, plain.byteLength);
   }
 
   /* ------------------------------------------------------------------ */

@@ -21,6 +21,8 @@
 
 ![suno-api banner](https://github.com/gcui-art/suno-api/blob/main/public/suno-banner.png)
 
+Stem generation, playback audio, listing existing alternatives and native official WAV export: [stems API guide](docs/stems.md).
+
 ## Introduction
 
 Suno is an amazing AI music service. Although the official API is not yet available, we couldn't wait to integrate its capabilities somewhere.

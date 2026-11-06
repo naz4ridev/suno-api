@@ -1,0 +1,1447 @@
+{
+  "betaSource": "https://suno.com/_next/static/immutable/chunks/080sspl6v0e1p.js",
+  "capturedAt": "2026-11-06T11:54:46.909Z",
+  "instruments": [
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "12-String Guitar",
+      "name": "12-String Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "808",
+      "name": "808"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Accordion",
+      "name": "Accordion"
+    },
+    {
+      "beta": true,
+      "group": "Bass",
+      "label": "Acoustic Bass",
+      "name": "Acoustic Bass"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Acoustic Drum Kit",
+      "name": "Acoustic Drum Kit"
+    },
+    {
+      "beta": false,
+      "group": "Guitar",
+      "label": "Acoustic Guitar",
+      "name": "Acoustic Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Agogo",
+      "name": "Agogo"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Ajaeng",
+      "name": "Ajaeng"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Alto Flute",
+      "name": "Alto Flute"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Alto Saxophone",
+      "name": "Alto Saxophone"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Arpeggiated Synth",
+      "name": "Arpeggiated Synth"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Arpeggiator",
+      "name": "Arpeggiator"
+    },
+    {
+      "beta": false,
+      "group": "Backing_Vocals",
+      "label": "Backing Vocals",
+      "name": "Backing Vocals"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Baglama",
+      "name": "Baglama"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Bagpipes",
+      "name": "Bagpipes"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Bajo Quinto",
+      "name": "Bajo Quinto"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Banjo",
+      "name": "Banjo"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Bansuri",
+      "name": "Bansuri"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Baritone Guitar",
+      "name": "Baritone Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Baritone Saxophone",
+      "name": "Baritone Saxophone"
+    },
+    {
+      "beta": false,
+      "group": "Bass",
+      "label": "Bass",
+      "name": "Bass"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Bass Drum",
+      "name": "Bass Drum"
+    },
+    {
+      "beta": true,
+      "group": "Bass",
+      "label": "Bass Guitar",
+      "name": "Bass Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Bassoon",
+      "name": "Bassoon"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Bells",
+      "name": "Bells"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Berimbau",
+      "name": "Berimbau"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Body Percussion",
+      "name": "Body Percussion"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Bongos",
+      "name": "Bongos"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Bouzouki",
+      "name": "Bouzouki"
+    },
+    {
+      "beta": true,
+      "group": "Bass",
+      "label": "Bowed Bass",
+      "name": "Bowed Bass"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Braams",
+      "name": "Braams"
+    },
+    {
+      "beta": false,
+      "group": "Brass",
+      "label": "Brass",
+      "name": "Brass Section"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Cabasa",
+      "name": "Cabasa"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Castanets",
+      "name": "Castanets"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Celesta",
+      "name": "Celesta"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Cello",
+      "name": "Cello"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Charango",
+      "name": "Charango"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Chimes",
+      "name": "Chimes"
+    },
+    {
+      "beta": true,
+      "group": "Vocals",
+      "label": "Choir",
+      "name": "Choir"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Cimbalom",
+      "name": "Cimbalom"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Clap",
+      "name": "Clap"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Clarinet",
+      "name": "Clarinet"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Classical Guitar",
+      "name": "Classical Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Clavinet",
+      "name": "Clavinet"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Clean Guitar",
+      "name": "Clean Guitar"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Clock",
+      "name": "Clock"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Congas",
+      "name": "Congas"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Cornet",
+      "name": "Cornet"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Cowbell",
+      "name": "Cowbell"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Cumbus",
+      "name": "Cumbus"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Cymbals",
+      "name": "Cymbals"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Daegeum",
+      "name": "Daegeum"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Didgeridoo",
+      "name": "Didgeridoo"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Electric Piano",
+      "name": "Digital Piano"
+    },
+    {
+      "beta": false,
+      "group": "Guitar",
+      "label": "Lead Guitar",
+      "name": "Distorted Electric Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Djembe",
+      "name": "Djembe"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Dobro",
+      "name": "Dobro"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Dolceola",
+      "name": "Dolceola"
+    },
+    {
+      "beta": true,
+      "group": "Bass",
+      "label": "Double Bass",
+      "name": "Double Bass"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Drone",
+      "name": "Drone"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Drum Fills",
+      "name": "Drum Fills"
+    },
+    {
+      "beta": false,
+      "group": "Drums",
+      "label": "Drums",
+      "name": "Drum Kit"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Duduk",
+      "name": "Duduk"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Dulcimer",
+      "name": "Dulcimer"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Dulcitone",
+      "name": "Dulcitone"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "E-Bow",
+      "name": "E-Bow"
+    },
+    {
+      "beta": true,
+      "group": "Bass",
+      "label": "Bass",
+      "name": "Electric Bass"
+    },
+    {
+      "beta": false,
+      "group": "Guitar",
+      "label": "Electric Guitar",
+      "name": "Electric Guitar"
+    },
+    {
+      "beta": false,
+      "group": "Keyboard",
+      "label": "Electric Piano",
+      "name": "Electric Piano"
+    },
+    {
+      "beta": false,
+      "group": "Drums",
+      "label": "Drums",
+      "name": "Electronic Drum Kit"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Electronic Percussion",
+      "name": "Electronic Percussion"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "English Horn",
+      "name": "English Horn"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Ethnic Percussion",
+      "name": "Ethnic Percussion"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Fiddle",
+      "name": "Fiddle"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Finger Cymbal",
+      "name": "Finger Cymbal"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Finger Snap",
+      "name": "Finger Snap"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Flugelhorn",
+      "name": "Flugelhorn"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Flute",
+      "name": "Flute"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Frame Drum",
+      "name": "Frame Drum"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "French Horn",
+      "name": "French Horn"
+    },
+    {
+      "beta": true,
+      "group": "Bass",
+      "label": "Fretless Bass",
+      "name": "Fretless Bass"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Fue",
+      "name": "Fue"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Fula Flute",
+      "name": "Fula Flute"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Gayageum",
+      "name": "Gayageum"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Glockenspiel",
+      "name": "Glockenspiel"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Gong",
+      "name": "Gong"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Grand Piano",
+      "name": "Grand Piano"
+    },
+    {
+      "beta": false,
+      "group": "Guitar",
+      "label": "Guitar",
+      "name": "Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Guitar Synth",
+      "name": "Guitar Synth"
+    },
+    {
+      "beta": true,
+      "group": "Bass",
+      "label": "Guitarron",
+      "name": "Guitarron"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Haegeum",
+      "name": "Haegeum"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Hammered Dulcimer",
+      "name": "Hammered Dulcimer"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Clap",
+      "name": "Hand Clap"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Harmonica",
+      "name": "Harmonica"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Harmonium",
+      "name": "Harmonium"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Harp",
+      "name": "Harp"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Harpsichord",
+      "name": "Harpsichord"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Hi-Hat",
+      "name": "Hi-Hat"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Brass",
+      "name": "Horns"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Impacts",
+      "name": "Impacts"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Janggu",
+      "name": "Janggu"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Jew's Harp",
+      "name": "Jew's Harp"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Kazoo",
+      "name": "Kazoo"
+    },
+    {
+      "beta": false,
+      "group": "Keyboard",
+      "label": "Keyboards",
+      "name": "Keyboards"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Kick",
+      "name": "Kick"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Koto",
+      "name": "Koto"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Slide Guitar",
+      "name": "Lap Steel Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Latin Percussion",
+      "name": "Latin Percussion"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Lead Acoustic Guitar",
+      "name": "Lead Acoustic Guitar"
+    },
+    {
+      "beta": false,
+      "group": "Guitar",
+      "label": "Lead Guitar",
+      "name": "Lead Electric Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Lead Guitar",
+      "name": "Lead Guitar"
+    },
+    {
+      "beta": false,
+      "group": "Vocals",
+      "label": "Lead Vocal",
+      "name": "Lead Vocal"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Legato Strings",
+      "name": "Legato Strings"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Lokole",
+      "name": "Lokole"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Low Brass",
+      "name": "Low Brass"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Low Strings",
+      "name": "Low Strings"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Lute",
+      "name": "Lute"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Mallets",
+      "name": "Mallets"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Mandolin",
+      "name": "Mandolin"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Maracas",
+      "name": "Maracas"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Marimba",
+      "name": "Marimba"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Melodica",
+      "name": "Melodica"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Metal Bars",
+      "name": "Metal Bars"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Metals",
+      "name": "Metals"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Moog",
+      "name": "Moog"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Music Box",
+      "name": "Music Box"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Muted Trumpet",
+      "name": "Muted Trumpet"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Ney",
+      "name": "Ney"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Nyatiti",
+      "name": "Nyatiti"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Nylon Guitar",
+      "name": "Nylon Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Oboe",
+      "name": "Oboe"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Ocarina",
+      "name": "Ocarina"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Ohayashi",
+      "name": "Ohayashi"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Orchestra",
+      "name": "Orchestra"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Orchestra Hit",
+      "name": "Orchestra Hit"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Orchestral Percussion",
+      "name": "Orchestral Percussion"
+    },
+    {
+      "beta": false,
+      "group": "Keyboard",
+      "label": "Organ",
+      "name": "Organ"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Orutu",
+      "name": "Orutu"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Ostinato",
+      "name": "Ostinato"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Oud",
+      "name": "Oud"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Pan Flute",
+      "name": "Pan Flute"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Slide Guitar",
+      "name": "Pedal Steel Guitar"
+    },
+    {
+      "beta": false,
+      "group": "Percussion",
+      "label": "Percussion",
+      "name": "Percussion"
+    },
+    {
+      "beta": false,
+      "group": "Keyboard",
+      "label": "Piano",
+      "name": "Piano"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Piccolo",
+      "name": "Piccolo"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Piri",
+      "name": "Piri"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Pitched Percussion",
+      "name": "Pitched Percussion"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Pizzicato Strings",
+      "name": "Pizzicato Strings"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Pluck",
+      "name": "Pluck"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Plucked Strings",
+      "name": "Plucked Strings"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Prepared Piano",
+      "name": "Prepared Piano"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Pump Organ",
+      "name": "Pump Organ"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Qanun",
+      "name": "Qanun"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Rain Stick",
+      "name": "Rain Stick"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Recorder",
+      "name": "Recorder"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Reverb",
+      "name": "Reverb"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Reverse",
+      "name": "Reverse"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Reverse Guitar",
+      "name": "Reverse Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Electric Piano",
+      "name": "Rhodes"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Rhythm Acoustic Guitar",
+      "name": "Rhythm Acoustic Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Rhythm Acoustic Guitar (Arpeggio)",
+      "name": "Rhythm Acoustic Guitar (Arpeggio)"
+    },
+    {
+      "beta": false,
+      "group": "Guitar",
+      "label": "Rhythm Electric Guitar",
+      "name": "Rhythm Electric Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Rhythm Electric Guitar (Arpeggio)",
+      "name": "Rhythm Electric Guitar (Arpeggio)"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Rhythm Guitar",
+      "name": "Rhythm Guitar"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Risers",
+      "name": "Risers"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Ronroco",
+      "name": "Ronroco"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Salterio",
+      "name": "Salterio"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Santur",
+      "name": "Santur"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Sarod",
+      "name": "Sarod"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Saw",
+      "name": "Saw"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Saxophone",
+      "name": "Saxophone"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Shaker",
+      "name": "Shaker"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Shakuhachi",
+      "name": "Shakuhachi"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Shamisen",
+      "name": "Shamisen"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Sitar",
+      "name": "Sitar"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Snare",
+      "name": "Snare"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Solo Cello",
+      "name": "Solo Cello"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Solo Guitar",
+      "name": "Solo Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Solo Violin",
+      "name": "Solo Violin"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Soprano Saxophone",
+      "name": "Soprano Saxophone"
+    },
+    {
+      "beta": true,
+      "group": "Vocals",
+      "label": "Soprano Voice",
+      "name": "Soprano Voice"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Sound Design",
+      "name": "Sound Design"
+    },
+    {
+      "beta": false,
+      "group": "FX",
+      "label": "Other",
+      "name": "Sound Effects"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Sousaphone",
+      "name": "Sousaphone"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Stabs",
+      "name": "Stabs"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Staccato Strings",
+      "name": "Staccato Strings"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Steel Drums",
+      "name": "Steel Drums"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Sticks",
+      "name": "Sticks"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Sting",
+      "name": "Sting"
+    },
+    {
+      "beta": false,
+      "group": "Strings",
+      "label": "Strings",
+      "name": "String Section"
+    },
+    {
+      "beta": true,
+      "group": "Bass",
+      "label": "Sub Bass",
+      "name": "Sub Bass"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Sub Hits",
+      "name": "Sub Hits"
+    },
+    {
+      "beta": false,
+      "group": "Synth",
+      "label": "Synth",
+      "name": "Synth"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Ambient",
+      "name": "Synth Ambient"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Arp",
+      "name": "Synth Arp"
+    },
+    {
+      "beta": false,
+      "group": "Bass",
+      "label": "Synth Bass",
+      "name": "Synth Bass"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Synth Brass",
+      "name": "Synth Brass"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Drone",
+      "name": "Synth Drone"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Flute",
+      "name": "Synth Flute"
+    },
+    {
+      "beta": false,
+      "group": "Synth",
+      "label": "Synth Keys",
+      "name": "Synth Keys"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Lead",
+      "name": "Synth Lead"
+    },
+    {
+      "beta": false,
+      "group": "Synth",
+      "label": "Synth Pad",
+      "name": "Synth Pad"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Pluck",
+      "name": "Synth Pluck"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Pulses",
+      "name": "Synth Pulses"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Sequence",
+      "name": "Synth Sequence"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Synth Stabs",
+      "name": "Synth Stabs"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Synth Strings",
+      "name": "Synth Strings"
+    },
+    {
+      "beta": true,
+      "group": "Vocals",
+      "label": "Vocoder",
+      "name": "Synth Voice"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Tabla",
+      "name": "Tabla"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Taiko",
+      "name": "Taiko"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Talking Drum",
+      "name": "Talking Drum"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Tambourine",
+      "name": "Tambourine"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Tenor Saxophone",
+      "name": "Tenor Saxophone"
+    },
+    {
+      "beta": true,
+      "group": "Synth",
+      "label": "Theremin",
+      "name": "Theremin"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Timbales",
+      "name": "Timbales"
+    },
+    {
+      "beta": true,
+      "group": "Drums",
+      "label": "Timpani",
+      "name": "Timpani"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Toy Piano",
+      "name": "Toy Piano"
+    },
+    {
+      "beta": true,
+      "group": "FX",
+      "label": "Transitions",
+      "name": "Transitions"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Triangle",
+      "name": "Triangle"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Trombone",
+      "name": "Trombone"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Trumpet",
+      "name": "Trumpet"
+    },
+    {
+      "beta": true,
+      "group": "Brass",
+      "label": "Tuba",
+      "name": "Tuba"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Tubular Bells",
+      "name": "Tubular Bells"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Ukulele",
+      "name": "Ukulele"
+    },
+    {
+      "beta": false,
+      "group": "Bass",
+      "label": "Upright Bass",
+      "name": "Upright Bass"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Vibraphone",
+      "name": "Vibraphone"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Viola",
+      "name": "Viola"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Violin",
+      "name": "Violin"
+    },
+    {
+      "beta": true,
+      "group": "Vocals",
+      "label": "Vocal Ad-Libs",
+      "name": "Vocal Ad-Libs"
+    },
+    {
+      "beta": true,
+      "group": "Vocals",
+      "label": "Vocal Chop",
+      "name": "Vocal Chop"
+    },
+    {
+      "beta": true,
+      "group": "Vocals",
+      "label": "Vocal Effects",
+      "name": "Vocal Effects"
+    },
+    {
+      "beta": true,
+      "group": "Guitar",
+      "label": "Wah Guitar",
+      "name": "Wah Guitar"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Whistle",
+      "name": "Whistle"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Wind Chimes",
+      "name": "Wind Chimes"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Woodwinds",
+      "name": "Woodwinds"
+    },
+    {
+      "beta": true,
+      "group": "Keyboard",
+      "label": "Wurlitzer",
+      "name": "Wurlitzer"
+    },
+    {
+      "beta": true,
+      "group": "Percussion",
+      "label": "Xylophone",
+      "name": "Xylophone"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Yangqin",
+      "name": "Yangqin"
+    },
+    {
+      "beta": true,
+      "group": "Strings",
+      "label": "Zither",
+      "name": "Zither"
+    },
+    {
+      "beta": true,
+      "group": "Woodwinds",
+      "label": "Zurna",
+      "name": "Zurna"
+    }
+  ],
+  "source": "https://suno.com/_next/static/immutable/chunks/2gofo9sbmt1yp.js"
+}

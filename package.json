@@ -6,7 +6,7 @@
     "url": "https://github.com/gcui-art/"
   },
   "license": "LGPL-3.0-or-later",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "dev": "node scripts/next-runner.js dev",
