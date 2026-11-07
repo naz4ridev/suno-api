@@ -139,7 +139,7 @@ export const errorResponse = (error: any, context?: string) => {
   const body: Record<string, any> = {
     error: error?.message || 'Internal server error'
   };
-  for (const key of ['error_type', 'category', 'retryable', 'copyright']) {
+  for (const key of ['error_type', 'category', 'retryable', 'copyright', 'code', 'stage', 'submitted']) {
     if (error?.[key] !== undefined)
       body[key] = error[key];
   }
