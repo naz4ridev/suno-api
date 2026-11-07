@@ -15,6 +15,7 @@ import { browserProxy, proxiedAxiosConfig } from '@/lib/egress';
 // Cripto/URL/validación de audio compartidos con la extensión. Copia GENERADA desde suno2daw/packages/suno-core: no editar.
 import { createPlaybackCrypto, isClipId, selectPlaybackUrl } from '@/lib/vendor/suno-core.generated';
 import { stemRenderClipIds, assertStemRenderSource } from '@/lib/stemRender';
+import { buildLibraryFeedRequest, LibraryFeedOptions } from '@/lib/libraryFeed';
 
 // sunoApi instance caching (one instance per cookie, so several accounts can be authenticated at once)
 const globalForSunoApi = global as unknown as {
@@ -1998,6 +1999,25 @@ class SunoApi {
       clips: (response.clips || []).map((clip: any) => this.normalizeClip(clip)),
       has_more: response.has_more,
       next_cursor: response.next_cursor || response.cursor || null
+    };
+  }
+
+  /**
+   * Read-only library listing (feed/v3). Server-side `searchText`/`liked` filters; cursor pagination.
+   * Never generates, downloads or spends credits.
+   */
+  public async getLibraryFeed(options: LibraryFeedOptions): Promise<{
+    clips: any[];
+    has_more: boolean;
+    next_cursor: string | null;
+  }> {
+    const request = buildLibraryFeedRequest(options);
+    const response = await this.feedV3(request);
+    const next = response.next_cursor || response.cursor || null;
+    return {
+      clips: (response.clips || []).map((clip: any) => this.normalizeClip(clip)),
+      has_more: Boolean(next) && response.has_more !== false,
+      next_cursor: next
     };
   }
 
