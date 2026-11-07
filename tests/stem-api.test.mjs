@@ -1,35 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import vm from 'node:vm';
-import ts from 'typescript';
-import * as core from '../src/lib/vendor/suno-core.generated.js';
-import * as renderHelpers from '../src/lib/stemRender.ts';
+import { SunoApi } from '../packages/suno-sdk/src/SunoApi.ts';
 
-// Load the real implementation with session, browser and network adapters replaced.
+// The real SunoApi implementation (the canonical SDK) with session and network adapters replaced.
 // No cookies, credentials or Suno calls are needed for these contract tests.
-const nodeRequire = createRequire(import.meta.url);
-const source = readFileSync(new URL('../src/lib/SunoApi.ts', import.meta.url), 'utf8');
-const output = ts.transpileModule(source, { compilerOptions: {
-  module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true,
-} }).outputText;
-const exports = {};
-vm.runInNewContext(output + '\nexports.TestApi = SunoApi;', {
-  exports, global: {}, Buffer, URL, console, process, setTimeout, clearTimeout,
-  require(name) {
-    if (name === '@/lib/vendor/suno-core.generated') return core;
-    if (name === '@/lib/stemRender') return renderHelpers;
-    if (name.startsWith('@/lib/')) return {};
-    return nodeRequire(name);
-  },
-});
+const TestApi = SunoApi;
 const song = '8e3286fb-5046-4233-b478-af5b0d61f69f';
 const stem = '7390193c-678d-4453-bfb6-0b6b6c244e12';
 const native = () => ({ format: 'wav_s16', start_beats: -1, end_beats: 8,
   state: { timing: { bps: 2 }, tracks: [{ clips: [{ asset: { type: 'clip', id: stem } }] }] } });
 function api() {
-  const instance = Object.create(exports.TestApi.prototype);
+  const instance = Object.create(TestApi.prototype);
   instance.keepAlive = async () => {};
   instance.url = path => path;
   return instance;

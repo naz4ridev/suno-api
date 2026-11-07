@@ -1,5 +1,5 @@
-import { SocksProxyAgent } from 'socks-proxy-agent';
 import axios from 'axios';
+import { createSocksProxy, noProxy, type SunoProxy } from '@suno-sdk';
 
 /**
  * Outbound egress for everything suno-api sends to Suno/Clerk/S3.
@@ -8,28 +8,22 @@ import axios from 'axios';
  */
 export const proxyUrl = process.env.SUNO_PROXY_URL?.trim() || '';
 
-let agent: SocksProxyAgent | undefined;
+let proxy: SunoProxy | undefined;
 
-export function getProxyAgent(): SocksProxyAgent | undefined {
-  if (!proxyUrl)
-    return undefined;
-  if (!proxyUrl.startsWith('socks'))
-    throw new Error(`Unsupported SUNO_PROXY_URL scheme (expected socks5:// or socks5h://): ${proxyUrl}`);
-  agent ??= new SocksProxyAgent(proxyUrl);
-  return agent;
+/** The SDK proxy for this process (created lazily so an unsupported scheme fails on first use). */
+export function getSunoProxy(): SunoProxy {
+  proxy ??= proxyUrl ? createSocksProxy(proxyUrl) : noProxy;
+  return proxy;
 }
 
 /** axios options that route a request through the egress proxy. */
 export function proxiedAxiosConfig() {
-  const proxyAgent = getProxyAgent();
-  return proxyAgent ? { httpAgent: proxyAgent, httpsAgent: proxyAgent, proxy: false as const } : {};
+  return getSunoProxy().axiosConfig();
 }
 
 /** Playwright/Chromium proxy settings (Chromium resolves DNS in the proxy for socks5). */
 export function browserProxy(): { server: string } | undefined {
-  if (!proxyUrl)
-    return undefined;
-  return { server: proxyUrl.replace(/^socks5h:/, 'socks5:') };
+  return getSunoProxy().browser?.();
 }
 
 /** Public IP information as seen through the configured egress. */

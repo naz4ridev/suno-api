@@ -296,6 +296,26 @@ Extra form fields: `create_workspace_if_missing`, `audio_content_types`, `reject
 For more detailed documentation, please check out the demo site:
 [suno.gcui.ai/docs](https://suno.gcui.ai/docs)
 
+## Embedding as a library (`packages/suno-sdk`)
+
+The Suno client lives in `packages/suno-sdk` and is shared by this server and by the Suno2DAW desktop app. It has no Next.js, Electron, environment or browser dependency: everything is injected.
+
+```ts
+import { createSunoRegistry } from '@suno-sdk';   // path alias in this repo
+
+const registry = createSunoRegistry({
+  accounts: { resolve: async selector => ({ id: 'main', cookie: '__client=…' }) }, // your account store
+  proxy: createSocksProxy('socks5h://host:1055'),   // optional
+  logger,                                           // optional { info, warn }
+  captcha: async request => token,                  // optional; without it a required captcha fails before the POST
+});
+const api = await registry.sunoApiForAccount('main');
+```
+
+- `npm run sdk:typecheck` · `npm run sdk:test` · `npm run sdk:build` (writes `packages/suno-sdk/dist/`: bundle, complete source, licence texts, provenance).
+- The server wires its own world in `src/lib/SunoApi.ts` (env, accounts file, `SUNO_PROXY_URL`) and `src/lib/headlessCaptcha.ts` (Chromium + 2Captcha).
+- The desktop app consumes the built artifact (`npm run sync -w @suno2daw/suno-sdk` in the suno2daw repository). Keep the library LGPL-3.0-or-later: do not remove the licence files from the build outputs.
+
 ## API Integration Code Examples
 
 ### Python

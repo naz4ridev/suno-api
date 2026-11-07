@@ -1,4 +1,4 @@
-import catalogue from '@/lib/data/stem-catalogue.json';
+import { stemCatalogue as catalogue } from '@suno-sdk';
 import { jsonResponse, optionsResponse } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';

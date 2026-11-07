@@ -42,3 +42,6 @@ next-env.d.ts
 .data/accounts.json
 .data/**/*.tmp
 .data/upload-file-works/files/
+
+# SDK build output
+/packages/suno-sdk/dist/

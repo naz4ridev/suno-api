@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stemRenderClipIds, assertStemRenderSource } from '../src/lib/stemRender.ts';
+import { stemRenderClipIds, assertStemRenderSource } from '../packages/suno-sdk/src/stemRender.ts';
 
 const song = '8e3286fb-5046-4233-b478-af5b0d61f69f';
 const stem = '7390193c-678d-4453-bfb6-0b6b6c244e12';

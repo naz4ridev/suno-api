@@ -1,11 +1,7 @@
 import { NextRequest } from 'next/server';
 import { missingSunoCookieResponse, resolveSunoAuth } from '@/lib/apiAuth';
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from '@/lib/utils';
-import {
-  createUploadFileWork,
-  getUploadFileWork,
-  runUploadFileWorkflow
-} from '@/lib/uploadFileWorkflow';
+import { getUploadFileWork, submitUploadFile } from '@/lib/uploadFileWorkflow';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,38 +55,16 @@ export async function POST(req: NextRequest) {
       .filter(Boolean);
     const fileBuffer = Buffer.from(await file.arrayBuffer());
 
-    const work = await createUploadFileWork({
-      filename: file.name,
-      content_type: file.type || undefined,
-      file_size: file.size,
-      workspace_id: workspaceId,
-      workspace_name: workspaceName,
+    const work = await submitUploadFile({
+      file: { name: file.name, type: file.type || undefined, bytes: fileBuffer },
+      auth: { cookie: auth.cookie, accountId: auth.accountId },
+      workspaceId,
+      workspaceName,
       title,
-      image_url: imageUrl,
-      account_id: auth.accountId,
-      create_workspace_if_missing: createWorkspaceIfMissing || undefined,
-      audio_content_types: audioContentTypes.length ? audioContentTypes : undefined,
-      reject_copyright_muted: rejectCopyrightMuted || undefined
-    });
-
-    setImmediate(() => {
-      void runUploadFileWorkflow({
-        workId: work.work_id,
-        sunoCookie: auth.cookie,
-        accountId: auth.accountId,
-        fileBuffer,
-        filename: file.name,
-        contentType: file.type || undefined,
-        workspaceId,
-        workspaceName,
-        title,
-        imageUrl,
-        options: {
-          createWorkspaceIfMissing,
-          audioContentTypes,
-          rejectCopyrightMuted
-        }
-      });
+      imageUrl,
+      createWorkspaceIfMissing,
+      audioContentTypes,
+      rejectCopyrightMuted
     });
 
     const statusUrl = new URL(req.url);

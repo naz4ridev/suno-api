@@ -12,6 +12,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "jsx": "preserve",
     "incremental": true,
     "plugins": [
@@ -21,6 +22,7 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
+      "@suno-sdk": ["./packages/suno-sdk/src/index.ts"],
       "playwright-core": ["./node_modules/rebrowser-playwright-core"]
     }
   },

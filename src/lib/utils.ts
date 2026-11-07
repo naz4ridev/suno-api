@@ -1,4 +1,5 @@
 import pino from "pino";
+import { errorBody, errorStatus } from "@suno-sdk";
 import { Page } from "rebrowser-playwright-core";
 
 const logger = pino();
@@ -131,43 +132,16 @@ export const jsonResponse = (data: unknown, status: number = 200) =>
  * and exposes structured upload-failure fields when present.
  */
 export const errorResponse = (error: any, context?: string) => {
-  const rawStatus = Number(error?.status || error?.response?.status);
-  const status = rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
+  const status = errorStatus(error);
   if (context)
     logger.error({ err: error?.message, status }, context);
 
-  const body: Record<string, any> = {
-    error: error?.message || 'Internal server error'
-  };
-  for (const key of ['error_type', 'category', 'retryable', 'copyright', 'code', 'stage', 'submitted']) {
-    if (error?.[key] !== undefined)
-      body[key] = error[key];
-  }
-  if (error?.detail !== undefined)
-    body.detail = error.detail;
+  const body = errorBody(error);
 
   return jsonResponse(body, status);
 }
 
-export const parseBoolean = (value: unknown, defaultValue: boolean = false): boolean => {
-  if (value === undefined || value === null || value === '')
-    return defaultValue;
-  if (typeof value === 'boolean')
-    return value;
-  const normalized = String(value).trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on'].includes(normalized))
-    return true;
-  if (['0', 'false', 'no', 'off'].includes(normalized))
-    return false;
-  return defaultValue;
-}
-
-export const parseOptionalNumber = (value: unknown): number | undefined => {
-  if (value === undefined || value === null || value === '')
-    return undefined;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : undefined;
-}
+export { parseBoolean, parseOptionalNumber } from '@suno-sdk';
 
 export const optionsResponse = () =>
   new Response(null, {

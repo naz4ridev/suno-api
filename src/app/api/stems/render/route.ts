@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getClient } from '@/lib/routeHelpers';
 import { errorResponse, jsonResponse, optionsResponse } from '@/lib/utils';
-import { stemRenderClipIds } from '@/lib/stemRender';
+import { stemRenderClipIds } from '@suno-sdk';
 
 export const maxDuration = 180;
 export const dynamic = 'force-dynamic';

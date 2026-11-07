@@ -324,11 +324,12 @@ test('GENERATE_REQUEST_PATTERN covers every generation endpoint and nothing else
 });
 
 test('errorResponse exposes the public captcha fields so clients know nothing was submitted', async () => {
+  const sdk = await import('../packages/suno-sdk/src/index.ts');
   const nodeRequire = createRequire(import.meta.url);
   const source = readFileSync(new URL('../src/lib/utils.ts', import.meta.url), 'utf8');
   const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
   const sandbox = { exports: {} };
-  vm.runInNewContext(output, { exports: sandbox.exports, process, console, setTimeout, clearTimeout, Response, require: name => (name === 'rebrowser-playwright-core' ? {} : nodeRequire(name)) });
+  vm.runInNewContext(output, { exports: sandbox.exports, process, console, setTimeout, clearTimeout, Response, require: name => (name === 'rebrowser-playwright-core' ? {} : name === '@suno-sdk' ? sdk : nodeRequire(name)) });
   const error = new flow.CaptchaFlowError('CAPTCHA_UI_CHANGED', 'Create button not found');
   const response = sandbox.exports.errorResponse(error);
   assert.equal(response.status, 503);

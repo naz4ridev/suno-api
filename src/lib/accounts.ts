@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { AccountError, selectAccount } from '@suno-sdk';
 
 /**
  * Multi-account registry.
@@ -53,14 +54,7 @@ type StoreFile = {
   accounts: StoredAccount[];
 };
 
-export class AccountError extends Error {
-  status: number;
-
-  constructor(message: string, status: number = 400) {
-    super(message);
-    this.status = status;
-  }
-}
+export { AccountError };
 
 const ACCOUNT_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
 
@@ -222,29 +216,7 @@ export function getAccount(accountId: string): SunoAccount | null {
  * `accountId` may be an account id, a label, an email or a Suno handle.
  */
 export function resolveAccount(accountId?: string | null): SunoAccount | null {
-  const accounts = listAccounts();
-  const requested = accountId?.trim();
-
-  if (!requested) {
-    const defaultId = getDefaultAccountId();
-    return defaultId ? accounts.find(account => account.id === defaultId) ?? null : null;
-  }
-
-  const normalized = requested.toLowerCase();
-  const account =
-    accounts.find(item => item.id === requested) ||
-    accounts.find(item =>
-      [item.label, item.user?.email, item.user?.handle]
-        .filter(Boolean)
-        .some(value => String(value).toLowerCase() === normalized)
-    );
-
-  if (!account)
-    throw new AccountError(`Suno account not found: ${requested}`, 404);
-  if (account.disabled)
-    throw new AccountError(`Suno account is disabled: ${account.id}`, 409);
-
-  return account;
+  return selectAccount(listAccounts(), accountId, accountId?.trim() ? null : getDefaultAccountId());
 }
 
 export function toPublicAccount(account: SunoAccount): PublicSunoAccount {
