@@ -14,7 +14,9 @@ export async function GET(req: NextRequest) {
     const showTrashed = String(url.searchParams.get('show_trashed') ?? 'false').toLowerCase() === 'true';
     const showSharelist = String(url.searchParams.get('show_sharelist') ?? 'false').toLowerCase() === 'true';
 
-    const mcp = await viaMcp(req, null, c => mcpOps.listMyPlaylists(c, Number.isFinite(page) && page > 0 ? page : 1));
+    const mcp = await viaMcp(req, null, c => mcpOps.listMyPlaylists(c, Number.isFinite(page) && page > 0 ? page : 1),
+      // The MCP list has no playlist description (clients match playlists by it): cookie accounts keep the web list.
+      200, { auto: false });
     if (mcp)
       return mcp;
 

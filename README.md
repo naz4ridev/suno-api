@@ -280,7 +280,7 @@ Two ways to get an account onto the MCP:
 **Which path serves a request** (`SUNO_TRANSPORT`, default `auto`; per request `transport` in the body/query or the `x-suno-transport` header: `auto`, `cookie`, `mcp`):
 
 - `auto`: routes whose MCP version gives the same result go through the MCP for every account that has (or can get) it — generation goes through the MCP, which does not ask for captchas. If the request needs something the MCP lacks (a custom or older model, a non-vocal stem, a cover image, a format other than mp3/wav…) or the account's MCP connection fails, a cookie account takes the web API path; a failed connection is recorded in `auth.mcp_error` and not retried for 10 minutes.
-- Routes whose MCP answer differs in shape or meaning stay on the cookie in `auto` (MCP only with `transport: mcp` or for OAuth-only accounts): `/api/get_limit` (it is the cookie health check), `/api/generate_stems` and `/api/stems`, `/api/clip_analysis`, `/api/get_aligned_lyrics`, `/api/models`, `/api/voices`, `/api/playlist/{id}` and `/api/upload_file` (the web upload reports copyright muting, the MCP does not).
+- Routes whose MCP answer differs in shape or meaning stay on the cookie in `auto` (MCP only with `transport: mcp` or for OAuth-only accounts): `/api/get_limit` (it is the cookie health check), `/api/generate_stems` and `/api/stems`, `/api/clip_analysis`, `/api/get_aligned_lyrics`, `/api/models`, `/api/voices`, `/api/playlist/me` (no playlist descriptions), `/api/playlist/{id}` and `/api/upload_file` (the web upload reports copyright muting, the MCP does not).
 - `cookie`: always the web API. `mcp`: always the MCP (409 when the request needs something it lacks).
 - A request with its own `suno_cookie` always uses the web API. An OAuth-only account always uses the MCP; routes without an MCP version answer 409.
 
@@ -300,7 +300,7 @@ Routes with an MCP version, and the MCP tools behind them (same request fields a
 | `GET /api/get`, `/api/clip`, `/api/library/songs`, `/api/workspace_feed` | `audio-retrieve`, `library-list`, `library-search`, `playlists-list-clips` | clips have no `audio_url` (use `/api/download`) |
 | `GET /api/get_aligned_lyrics`, `/api/clip_analysis` | `audio-lyrics-alignment`, `audio-analysis` | MCP shapes (+ `aligned_words`) |
 | `GET/POST /api/workspaces`, `POST /api/move_clip` | `workspaces-list`, `workspaces-create`, `workspaces-update-clips` | |
-| `GET /api/playlist/me`, `/api/playlist/{id}`, `POST /api/playlist/create`, `/api/playlist/update_clips` | `playlists-*` | `/playlist/me` returns every playlist on page 1 |
+| `GET /api/playlist/me`, `/api/playlist/{id}`, `POST /api/playlist/create`, `/api/playlist/update_clips` | `playlists-*` | `/playlist/me` returns every playlist on page 1, without descriptions |
 | `POST /api/gen/{id}/set_metadata` | `audio-edit` | only `title`, `lyrics`, `caption` |
 | `POST /api/download`, `GET /api/wav_file` | `audio-download` | mp3/wav; `authorize: false` never spends a download credit (answers `requires_credit`); `wav_file` never spends one |
 | `POST /api/upload_file` (+ `GET ?work_id=`) | `audio-upload-create`, PUT, `audio-upload-complete`, `audio-retrieve`, `workspaces-update-clips` | same work and steps; no cover image (`image_url` → warning) |
