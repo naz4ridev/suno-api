@@ -6,6 +6,7 @@ import {
   upsertStoreAccount
 } from '@/lib/accounts';
 import { evictSunoApi, sunoApi } from '@/lib/SunoApi';
+import { mcpCredits } from '@/lib/sunoMcp';
 
 /**
  * Logs in with the cookie and reads the user + credits. Throws when the cookie is not valid.
@@ -33,6 +34,13 @@ export async function inspectCookie(cookie: string): Promise<{ user: AccountUser
  */
 export async function checkAccount(account: SunoAccount): Promise<SunoAccount> {
   try {
+    if (!account.cookie) {
+      const credits = await mcpCredits(account);
+      return upsertStoreAccount({
+        id: account.id,
+        last_check: { ok: true, at: new Date().toISOString(), credits_left: credits.credits_left, plan: credits.plan }
+      });
+    }
     const { user, check } = await inspectCookie(account.cookie);
     return upsertStoreAccount({ id: account.id, user, last_check: check });
   } catch (error: any) {

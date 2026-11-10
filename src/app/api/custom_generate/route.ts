@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { DEFAULT_MODEL } from "@/lib/SunoApi";
 import { buildGenerateOptions, getClient } from "@/lib/routeHelpers";
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from "@/lib/utils";
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const maxDuration = 60; // allow longer timeout for wait_audio == true
 export const dynamic = "force-dynamic";
@@ -15,6 +17,17 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { prompt, tags, title, make_instrumental, model, wait_audio, negative_tags } = body;
+
+    const mcp = await viaMcp(req, body, async c => mcpOps.createClips(c, 'audio-create', {
+      ...mcpOps.generationArgs(body, await mcpOps.workspaceIdFrom(c, body)),
+      lyrics: prompt || undefined,
+      style: tags || undefined,
+      negative_style: tags ? negative_tags || undefined : undefined,
+      title: title || undefined,
+      instrumental: parseBoolean(make_instrumental) || undefined
+    }, parseBoolean(wait_audio)));
+    if (mcp)
+      return mcp;
 
     const client = await getClient(req, body);
     if (client instanceof Response)

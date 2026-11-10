@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getClient, parseClipIds } from '@/lib/routeHelpers';
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from '@/lib/utils';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +19,11 @@ export async function POST(req: NextRequest) {
 
     if (!body.workspace_id && !body.workspace_name)
       return jsonResponse({ error: 'workspace_id or workspace_name is required' }, 400);
+
+    const mcp = await viaMcp(req, body, c =>
+      mcpOps.moveClipsToWorkspace(c, clipIds, body.workspace_id, body.workspace_name, parseBoolean(body.create_if_missing)));
+    if (mcp)
+      return mcp;
 
     const client = await getClient(req, body);
     if (client instanceof Response)

@@ -3,6 +3,8 @@ export * from './accounts.ts';
 export * from './captcha.ts';
 export * from './contract.ts';
 export * from './libraryFeed.ts';
+export * from './mcp.ts';
+export * as mcpOps from './mcpOperations.ts';
 export * from './proxy.ts';
 export * from './registry.ts';
 export * from './runtime.ts';

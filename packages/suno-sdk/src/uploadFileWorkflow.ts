@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { classifyUploadFailure, SunoUploadError, type SunoApi } from './SunoApi.ts';
+import type { SunoMcpClient } from './mcp.ts';
+import { moveClipsToWorkspace as mcpMoveClips, startUpload as mcpStartUpload, toAudioInfo } from './mcpOperations.ts';
 
 export type UploadFileWorkStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type UploadFileStepStatus =
@@ -31,6 +33,8 @@ export type UploadFileWorkflowInput = {
   image_url?: string;
   /** Account that runs the upload (the cookie itself is never persisted). */
   account_id?: string;
+  /** `mcp` when the account uploads through the official Suno MCP (OAuth account without cookie). */
+  transport?: 'cookie' | 'mcp';
   create_workspace_if_missing?: boolean;
   audio_content_types?: string[];
   reject_copyright_muted?: boolean;
@@ -77,6 +81,7 @@ export type UploadFileQueuedJob = {
   workId: string;
   sunoCookie: string;
   accountId?: string;
+  transport?: 'cookie' | 'mcp';
   filePath: string;
   filename: string;
   contentType?: string;
@@ -92,6 +97,8 @@ export interface UploadFileWorkflowDeps {
   storageDirectory: string;
   /** Authenticated client for a cookie/account (see SunoRegistry.sunoApi). */
   getApi(cookie: string, accountId?: string): Promise<SunoApi>;
+  /** Suno MCP client of an account, for accounts that upload through the official MCP. */
+  getMcp?(accountId?: string): Promise<SunoMcpClient>;
 }
 
 /**
@@ -357,6 +364,7 @@ async function runUploadFileWorkflow({
   workId,
   sunoCookie,
   accountId,
+  transport,
   fileBuffer,
   filename,
   contentType,
@@ -377,7 +385,11 @@ async function runUploadFileWorkflow({
   title?: string;
   imageUrl?: string;
   options?: UploadFileOptions;
+  transport?: 'cookie' | 'mcp';
 }) {
+  if (transport === 'mcp')
+    return runMcpUploadWorkflow({ workId, accountId, fileBuffer, filename, contentType, workspaceId, workspaceName, title, imageUrl, options });
+
   await setWorkState(workId, 'running');
 
   let failedStep: UploadFileStepKey = 'create_upload';
@@ -555,6 +567,114 @@ async function runUploadFileWorkflow({
   }
 }
 
+/**
+ * The same work, steps and result shape through the official Suno MCP: upload session → PUT → complete →
+ * poll the clip. The clip is in the library as soon as it completes, so initialize/metadata/description are
+ * skipped (the MCP sets the title at completion and cannot set a cover image).
+ */
+async function runMcpUploadWorkflow({
+  workId, accountId, fileBuffer, filename, contentType, workspaceId, workspaceName, title, imageUrl, options = {}
+}: {
+  workId: string;
+  accountId?: string;
+  fileBuffer: Buffer;
+  filename: string;
+  contentType?: string;
+  workspaceId?: string;
+  workspaceName?: string;
+  title?: string;
+  imageUrl?: string;
+  options?: UploadFileOptions;
+}) {
+  await setWorkState(workId, 'running');
+  let failedStep: UploadFileStepKey = 'create_upload';
+  const warnings: string[] = [];
+
+  try {
+    if (!deps.getMcp)
+      throw new Error('This host cannot upload through the Suno MCP');
+    const client = await deps.getMcp(accountId);
+    const clipTitle = title || path.parse(filename).name;
+
+    const session = await runTrackedStep(workId, 'create_upload', () => mcpStartUpload(client, clipTitle),
+      // upload_url and upload_page_url are credentials for this upload: never persisted.
+      (value: any) => ({ id: value?.id, expires_at: value?.expires_at }));
+    if (!session?.id || !session?.upload_url)
+      throw new Error('Suno MCP audio-upload-create returned no upload_url');
+
+    failedStep = 'upload_storage';
+    await runTrackedStep(workId, 'upload_storage', () => client.putUpload(session.upload_url, fileBuffer, contentType),
+      () => ({ bytes: fileBuffer.byteLength }));
+
+    failedStep = 'upload_finish';
+    const completed = await runTrackedStep(workId, 'upload_finish', () =>
+      client.callToolJson('audio-upload-complete', { id: session.id, title: clipTitle }));
+    const clipId: string = completed?.id || session.id;
+
+    failedStep = 'poll_upload';
+    const attempts: any[] = [];
+    const startedAt = Date.now();
+    let clip = completed;
+    await markStepStatus(workId, 'poll_upload', 'running', { output: { attempts } });
+    try {
+      while (clip?.status !== 'complete') {
+        if (clip?.status === 'error' || clip?.error) {
+          const failure = clip?.error;
+          throw classifyUploadFailure(
+            typeof failure === 'object' ? failure?.code ?? failure?.type : undefined,
+            typeof failure === 'string' ? failure : failure?.message ?? JSON.stringify(failure ?? 'upload failed'),
+            undefined,
+            clip
+          );
+        }
+        if (Date.now() - startedAt > 300000) {
+          throw new SunoUploadError({
+            message: 'Timed out waiting for Suno to finish processing the upload',
+            category: 'timeout', retryable: true, copyright: false, detail: clip
+          });
+        }
+        await new Promise(resolve => setTimeout(resolve, 4000));
+        clip = await client.callToolJson('audio-retrieve', { id: clipId });
+        attempts.push({ status: clip?.status, at: nowIso() });
+        await markStepStatus(workId, 'poll_upload', 'running', { output: { attempts, latest: clip } });
+      }
+      await markStepStatus(workId, 'poll_upload', 'completed', { output: { attempts, latest: clip } });
+    } catch (error: any) {
+      await markStepStatus(workId, 'poll_upload', 'failed', { output: { attempts, latest: clip }, error: buildErrorDetail(error) });
+      throw error;
+    }
+
+    const skipped = (reason: string) => ({ output: { skipped: true, reason } });
+    await markStepStatus(workId, 'initialize_clip', 'skipped', skipped('The Suno MCP adds the clip to the library when the upload completes'));
+    if (imageUrl)
+      warnings.push('image_url ignored: the Suno MCP cannot set a cover image');
+    await markStepStatus(workId, 'set_metadata', 'skipped', skipped('Title set when the upload completed (Suno MCP)'));
+    await markStepStatus(workId, 'set_audio_description', 'skipped', skipped('Not available through the Suno MCP'));
+
+    let workspaceMove: any = null;
+    if (workspaceId || workspaceName) {
+      failedStep = 'move_to_workspace';
+      workspaceMove = await runTrackedStep(workId, 'move_to_workspace', () =>
+        mcpMoveClips(client, [clipId], workspaceId, workspaceName, Boolean(options.createWorkspaceIfMissing)));
+    } else {
+      await markStepStatus(workId, 'move_to_workspace', 'skipped', skipped('No workspace_id or workspace_name provided'));
+    }
+
+    await setWorkState(workId, 'completed', {
+      result: {
+        upload: clip,
+        initialized_clip: { clip_id: clipId },
+        clip: toAudioInfo(clip),
+        workspace_move: workspaceMove,
+        copyright_muted: false,
+        ...(warnings.length ? { warnings } : {})
+      }
+    });
+  } catch (error: any) {
+    await setWorkState(workId, 'failed', { error: { step: failedStep, detail: buildErrorDetail(error) } });
+  }
+}
+
 async function processUploadFileQueue() {
   if (uploadQueue.processing)
     return;
@@ -580,6 +700,7 @@ async function processUploadFileQueue() {
           workId: job.workId,
           sunoCookie: job.sunoCookie,
           accountId: job.accountId,
+          transport: job.transport,
           options: job.options,
           fileBuffer,
           filename: job.filename,
@@ -612,6 +733,7 @@ async function enqueueUploadFileWork(job: {
   workId: string;
   sunoCookie: string;
   accountId?: string;
+  transport?: 'cookie' | 'mcp';
   options?: UploadFileOptions;
   fileBuffer: Buffer;
   filename: string;
@@ -631,6 +753,7 @@ async function enqueueUploadFileWork(job: {
     workId: job.workId,
     sunoCookie: job.sunoCookie,
     accountId: job.accountId,
+    transport: job.transport,
     options: job.options,
     filePath,
     filename: job.filename,
@@ -650,7 +773,8 @@ async function enqueueUploadFileWork(job: {
  */
 async function submitUploadFile(input: {
   file: { name: string; type?: string; bytes: Buffer };
-  auth: { cookie: string; accountId?: string };
+  /** `transport: 'mcp'` uploads through the account's Suno MCP connection (cookie may be empty). */
+  auth: { cookie: string; accountId?: string; transport?: 'cookie' | 'mcp' };
   workspaceId?: string;
   workspaceName?: string;
   title?: string;
@@ -669,6 +793,7 @@ async function submitUploadFile(input: {
     title: input.title,
     image_url: input.imageUrl,
     account_id: input.auth.accountId,
+    ...(input.auth.transport === 'mcp' ? { transport: 'mcp' as const } : {}),
     create_workspace_if_missing: input.createWorkspaceIfMissing || undefined,
     audio_content_types: audioContentTypes.length ? audioContentTypes : undefined,
     reject_copyright_muted: input.rejectCopyrightMuted || undefined
@@ -679,6 +804,7 @@ async function submitUploadFile(input: {
       workId: work.work_id,
       sunoCookie: input.auth.cookie,
       accountId: input.auth.accountId,
+      transport: input.auth.transport,
       fileBuffer: input.file.bytes,
       filename: input.file.name,
       contentType: input.file.type || undefined,

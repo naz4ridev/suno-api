@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getClient } from '@/lib/routeHelpers';
 import { errorResponse, jsonResponse, optionsResponse } from '@/lib/utils';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +15,12 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const songIds = url.searchParams.get('ids');
     const page = url.searchParams.get('page') || url.searchParams.get('cursor');
+
+    const mcp = await viaMcp(req, null, async c => songIds
+      ? mcpOps.retrieveClips(c, songIds.split(',').map(id => id.trim()).filter(Boolean))
+      : (await mcpOps.listLibrary(c, { cursor: page })).clips);
+    if (mcp)
+      return mcp;
 
     const client = await getClient(req);
     if (client instanceof Response)

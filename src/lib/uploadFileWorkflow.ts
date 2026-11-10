@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { createUploadFileWorkflow, type UploadFileWork, type UploadFileWorkflow } from '@suno-sdk';
 import { sunoApi } from '@/lib/SunoApi';
+import { requireAccount } from '@/lib/accountService';
+import { mcpClientFor } from '@/lib/sunoMcp';
 
 /**
  * Durable upload works (packages/suno-sdk). Records live in UPLOAD_FILE_WORK_DIR
@@ -15,7 +17,8 @@ const resolveWorkDir = () => {
 const globalForWorkflow = global as unknown as { sunoUploadWorkflow?: UploadFileWorkflow };
 export const uploadFileWorkflow = globalForWorkflow.sunoUploadWorkflow ||= createUploadFileWorkflow({
   storageDirectory: resolveWorkDir(),
-  getApi: (cookie, accountId) => sunoApi(cookie, accountId)
+  getApi: (cookie, accountId) => sunoApi(cookie, accountId),
+  getMcp: accountId => mcpClientFor(requireAccount(accountId ?? ''))
 });
 
 export const { getUploadFileWork, createUploadFileWork, runUploadFileWorkflow, enqueueUploadFileWork, submitUploadFile } = uploadFileWorkflow;

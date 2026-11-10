@@ -11,6 +11,7 @@ import {
 } from '@/lib/accounts';
 import { inspectCookie, requireAccount } from '@/lib/accountService';
 import { evictSunoApi } from '@/lib/SunoApi';
+import { disconnectMcp, evictMcpClient } from '@/lib/sunoMcp';
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         throw new AccountError(`Could not log in with this cookie: ${error?.message || error}`, 422);
       }
       evictSunoApi(current);
+      // The MCP grant belongs to the previous Suno user: revoke it rather than mixing two users.
+      if (current.mcp && user?.id && current.user?.id && user.id !== current.user.id) {
+        await disconnectMcp(current);
+        upsertStoreAccount({ id: current.id, mcp: null });
+      }
+      evictMcpClient(current.id);
     }
 
     const account = upsertStoreAccount({
@@ -85,6 +92,8 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     const account = requireAccount(params.account_id);
     evictSunoApi(account);
     const removed = removeStoreAccount(account.id);
+    // The account's Suno MCP grant would otherwise stay authorized at Suno.
+    const mcpRevoked = removed ? await disconnectMcp(account) : false;
 
     if (isEnvAccount(account.id)) {
       return jsonResponse(
@@ -96,7 +105,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       );
     }
 
-    return jsonResponse({ id: account.id, deleted: removed });
+    return jsonResponse({ id: account.id, deleted: removed, mcp_revoked: mcpRevoked });
   } catch (error: any) {
     return errorResponse(error, 'Error deleting account');
   }

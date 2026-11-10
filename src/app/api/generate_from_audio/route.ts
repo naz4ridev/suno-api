@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server';
 import { AudioToAudioMode } from '@/lib/SunoApi';
 import { buildGenerateOptions, getClient } from '@/lib/routeHelpers';
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from '@/lib/utils';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
+import { unsupportedViaMcp } from '@suno-sdk';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -18,6 +21,21 @@ export async function POST(req: NextRequest) {
 
     if (!validModes.includes(mode))
       return jsonResponse({ error: 'mode must be one of: cover, add_vocals, add_instrumental' }, 400);
+
+    const mcp = await viaMcp(req, body, async c => {
+      if (mode !== 'cover')
+        throw unsupportedViaMcp(`mode "${mode}" (only cover)`);
+      return mcpOps.createClips(c, 'audio-covers-create', {
+        ...mcpOps.generationArgs(body, await mcpOps.workspaceIdFrom(c, body)),
+        id: body.clip_id,
+        lyrics: body.prompt || undefined,
+        style: body.tags || undefined,
+        negative_style: body.negative_tags || undefined,
+        title: body.title || undefined
+      }, parseBoolean(body.wait_audio));
+    });
+    if (mcp)
+      return mcp;
 
     const client = await getClient(req, body);
     if (client instanceof Response)

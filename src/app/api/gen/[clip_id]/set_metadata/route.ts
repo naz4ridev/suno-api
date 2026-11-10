@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { missingSunoCookieResponse, resolveSunoCookie } from '@/lib/apiAuth';
 import { corsHeaders } from '@/lib/utils';
 import { sunoApi } from '@/lib/SunoApi';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +27,10 @@ export async function POST(
     }
 
     const body = await req.json();
+    const mcp = await viaMcp(req, body, c => mcpOps.editClip(c, clipId, body || {}));
+    if (mcp)
+      return mcp;
+
     const sunoCookie = resolveSunoCookie(req, body);
     if (!sunoCookie)
       return missingSunoCookieResponse();

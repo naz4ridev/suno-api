@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * Optional API key for every API route. When SUNO_API_KEY is set, requests to /api/* and /v1/*
- * must send `x-api-key: <key>` or `Authorization: Bearer <key>`. /api/health and CORS preflights stay open.
+ * must send `x-api-key: <key>` or `Authorization: Bearer <key>`. /api/health, the Suno MCP OAuth callback and
+ * CORS preflights stay open.
  * suno-api is meant to be reachable only from the internal Docker network and the VPN; this key stops
  * other containers on the shared network from using the Suno accounts.
  */
-const PUBLIC_PATHS = new Set(['/api/health']);
+// The MCP OAuth callback is opened by the user's browser, which cannot send the key; its single-use state guards it.
+const PUBLIC_PATHS = new Set(['/api/health', '/api/accounts/mcp/callback']);
 
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length)

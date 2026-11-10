@@ -1,12 +1,18 @@
 import { NextRequest } from 'next/server';
 import { getClient } from '@/lib/routeHelpers';
 import { errorResponse, jsonResponse, optionsResponse } from '@/lib/utils';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
 
 /** GET /api/workspaces -> all workspaces (projects) of the account. */
 export async function GET(req: NextRequest) {
   try {
+    const mcp = await viaMcp(req, null, async c => ({ workspaces: await mcpOps.listWorkspaces(c) }));
+    if (mcp)
+      return mcp;
+
     const client = await getClient(req);
     if (client instanceof Response)
       return client;
@@ -24,6 +30,13 @@ export async function POST(req: NextRequest) {
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name)
       return jsonResponse({ error: 'name is required' }, 400);
+
+    const mcp = await viaMcp(req, body, c => body.if_missing
+      ? mcpOps.resolveWorkspace(c, undefined, name, true)
+      : c.callToolJson('workspaces-create', { name, ...(body.description ? { description: body.description } : {}) }),
+    body.if_missing ? 200 : 201);
+    if (mcp)
+      return mcp;
 
     const client = await getClient(req, body);
     if (client instanceof Response)

@@ -265,6 +265,55 @@ suno-api keeps one authenticated client per account, so several Suno accounts ca
 - Set `SUNO_ACCOUNTS_ADMIN_TOKEN` to require the `x-admin-token` header on account changes.
 - `/api/upload_file` works store the `account_id` that ran them (never the cookie).
 
+### Official Suno MCP (`api.suno.com/mcp`)
+
+Every account can also talk to Suno through its official MCP server (OAuth 2.1). The MCP only offers the tools Suno declares, so suno-api passes them through instead of re-implementing them:
+
+- `GET /api/mcp/tools[?account=]`: tools the MCP exposes to the account (name, description, `inputSchema`).
+- `POST /api/mcp/call` `{ "name": "<tool>", "arguments": { … }, "account": "…" }`: calls a tool and returns the MCP result (`content`, `structuredContent`, `isError`). Generation tools spend the account's credits.
+
+Two ways to get an account onto the MCP:
+
+- **From a cookie**: `POST /api/accounts` links the new account to the MCP with its own Suno session (no browser; `link_mcp: false` skips it). Existing cookie accounts: `POST /api/accounts/{id}/mcp` (`relink: true` replaces the connection), `DELETE /api/accounts/{id}/mcp` revokes it. They also link themselves on first MCP use.
+- **OAuth only** (no cookie): `POST /api/accounts/mcp/authorize`, below.
+
+**Which path serves a request** (`SUNO_TRANSPORT`, default `auto`; per request `transport` in the body/query or the `x-suno-transport` header: `auto`, `cookie`, `mcp`):
+
+- `auto`: routes whose MCP version gives the same result go through the MCP for every account that has (or can get) it — generation goes through the MCP, which does not ask for captchas. If the request needs something the MCP lacks (a custom or older model, a non-vocal stem, a cover image, a format other than mp3/wav…) or the account's MCP connection fails, a cookie account takes the web API path; a failed connection is recorded in `auth.mcp_error` and not retried for 10 minutes.
+- Routes whose MCP answer differs in shape or meaning stay on the cookie in `auto` (MCP only with `transport: mcp` or for OAuth-only accounts): `/api/get_limit` (it is the cookie health check), `/api/generate_stems` and `/api/stems`, `/api/clip_analysis`, `/api/get_aligned_lyrics`, `/api/models`, `/api/voices`, `/api/playlist/{id}` and `/api/upload_file` (the web upload reports copyright muting, the MCP does not).
+- `cookie`: always the web API. `mcp`: always the MCP (409 when the request needs something it lacks).
+- A request with its own `suno_cookie` always uses the web API. An OAuth-only account always uses the MCP; routes without an MCP version answer 409.
+
+Answers served by the MCP carry `x-suno-transport: mcp`.
+
+Routes with an MCP version, and the MCP tools behind them (same request fields and, as far as the MCP allows, the same response shape):
+
+| Route | MCP tools | Differences |
+| --- | --- | --- |
+| `GET /api/get_limit`, `POST /api/accounts/{id}/check` | `account-usage` | adds `download_credits_left`, `allowed_models`, `features` |
+| `GET /api/models` | `account-usage` | MCP labels (`v6`, `v6-mini`, `v6-wild`) instead of `chirp-*`; `model` in generation routes only accepts these labels (a `chirp-*` model is dropped: plan default) |
+| `POST /api/generate`, `/api/custom_generate` | `audio-create` (+ `audio-wait` with `wait_audio`) | 2 songs per call; `persona_id`/`voice_id`, sliders (0–1 or 0–100), `vocal_gender`, `is_max_mode`, `workspace_id`/`workspace_name`, `duration` |
+| `POST /api/extend_audio` | `audio-extensions-create` | `continue_at` defaults to the end of the clip |
+| `POST /api/generate_from_audio` | `audio-covers-create` | `mode: cover` only |
+| `POST /api/concat` | `audio-full-song` | |
+| `POST /api/generate_stems`, `GET /api/stems?id=&group_id=` | `audio-stems-create`, `audio-stems-retrieve` | modes `twelve` and vocals/instrumental (`extract` with a vocal stem, `legacy`); returns the stem group (`id` = `group_id`) |
+| `GET /api/get`, `/api/clip`, `/api/library/songs`, `/api/workspace_feed` | `audio-retrieve`, `library-list`, `library-search`, `playlists-list-clips` | clips have no `audio_url` (use `/api/download`) |
+| `GET /api/get_aligned_lyrics`, `/api/clip_analysis` | `audio-lyrics-alignment`, `audio-analysis` | MCP shapes (+ `aligned_words`) |
+| `GET/POST /api/workspaces`, `POST /api/move_clip` | `workspaces-list`, `workspaces-create`, `workspaces-update-clips` | |
+| `GET /api/playlist/me`, `/api/playlist/{id}`, `POST /api/playlist/create`, `/api/playlist/update_clips` | `playlists-*` | `/playlist/me` returns every playlist on page 1 |
+| `POST /api/gen/{id}/set_metadata` | `audio-edit` | only `title`, `lyrics`, `caption` |
+| `POST /api/download`, `GET /api/wav_file` | `audio-download` | mp3/wav; `authorize: false` never spends a download credit (answers `requires_credit`); `wav_file` never spends one |
+| `POST /api/upload_file` (+ `GET ?work_id=`) | `audio-upload-create`, PUT, `audio-upload-complete`, `audio-retrieve`, `workspaces-update-clips` | same work and steps; no cover image (`image_url` → warning) |
+| `GET /api/voices` | `voices-list` | |
+
+No MCP equivalent (web API only; 409 for OAuth-only accounts): trash, playlist metadata/reorder, personas, custom models, lyrics generation, playback audio, stem render/prefetch, voice creation, upload description/initialize-clip, `/api/upload_audio` and `/v1/chat/completions`. Tools without a route (likes, publish settings, mashups, sounds, speech, MIDI, listen…) are reachable with `POST /api/mcp/call`. Generation calls send an `idempotency_key`, so a retried call is not charged twice.
+
+Tools Suno declared on 2026-11-10 (41; always check `GET /api/mcp/tools`, Suno adds and changes them): account (`account-me`, `account-usage`, `account-upgrade`), creation (`audio-create`, `audio-covers-create`, `audio-extensions-create`, `audio-mashups-create`, `audio-full-song`, `sounds-create`, `speech-create`, `audio-stems-create`), polling (`audio-wait`, `audio-retrieve`, `audio-stems-retrieve`), analysis (`audio-analysis`, `audio-lyrics-alignment`, `audio-listen`, `audio-listen-wait`, `audio-midi`), library (`library-list`, `library-search`, `library-liked`, `audio-edit`, `audio-like`, `audio-unlike`, `audio-settings`, `audio-download`), uploads (`audio-upload-create` from a `file.download_url`, `audio-upload-complete`, `midi-upload-create`, `midi-upload-complete`), playlists (`playlists-list`, `playlists-list-clips`, `playlists-create`, `playlists-add-clips`, `playlists-remove-clips`), workspaces (`workspaces-list`, `workspaces-create`, `workspaces-update-clips`) and voices (`voices-list`, `voices-start`). Tool errors come back as MCP results with `isError: true` and Suno's `{ error, code }` in the text.
+
+Adding an OAuth-only account: `POST /api/accounts/mcp/authorize` `{ "label": "…", "make_default": false }` returns `authorize_url`. Open it in a browser signed in to suno.com and accept; Suno redirects to `/api/accounts/mcp/callback`, which stores the account. That path skips `SUNO_API_KEY` because the browser cannot send it; it is guarded by the single-use, 10-minute `state` and by PKCE (the verifier never leaves the server, stored in `mcp-oauth-pending.json` next to the accounts file, mode 600, so a restart in between does not lose it). If the browser cannot reach the callback, copy the URL it was sent to and `POST /api/accounts/mcp/complete` `{ "callback_url": "…" }` (API key + admin token). Set `SUNO_PUBLIC_URL` when the browser reaches suno-api through a different origin than the request. Connecting a Suno user that is already registered refreshes that account's MCP tokens instead of adding a duplicate; another user's grant is never attached to an account that has a cookie.
+
+`GET /api/accounts` shows `auth: { cookie, mcp: "linked" | "available" | "unavailable", mcp_error? }` per account. OAuth tokens (15 minutes, refreshed automatically) are stored next to the cookies in `SUNO_ACCOUNTS_FILE` and never returned by the API. Replaced tokens and the grant of a deleted account are revoked at Suno. When the grant of an OAuth-only account is revoked, its routes answer 401 asking to connect it again; a cookie account is re-linked automatically.
+
 ### Internal deployment options
 
 - `SUNO_API_KEY`: when set, every `/api/*` and `/v1/*` request must send `x-api-key: <key>` (or `Authorization: Bearer <key>`). `/api/health` stays open.

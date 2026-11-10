@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { missingSunoCookieResponse, resolveSunoCookie } from '@/lib/apiAuth';
 import { corsHeaders } from '@/lib/utils';
 import { sunoApi } from '@/lib/SunoApi';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,6 +47,11 @@ export async function POST(req: NextRequest) {
         }
       );
     }
+
+    const mcp = await viaMcp(req, body, c =>
+      mcpOps.updatePlaylistClips(c, playlistId, body.update_type === 'remove' ? 'remove' : 'add', clipIds));
+    if (mcp)
+      return mcp;
 
     const sunoCookie = resolveSunoCookie(req, body);
     if (!sunoCookie)

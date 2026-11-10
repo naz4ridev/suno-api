@@ -2,6 +2,8 @@ import { NextResponse, NextRequest } from "next/server";
 import { missingSunoCookieResponse, resolveSunoCookie } from "@/lib/apiAuth";
 import { sunoApi } from "@/lib/SunoApi";
 import { corsHeaders } from "@/lib/utils";
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,10 @@ export async function POST(req: NextRequest) {
           }
         });
       }
+      const mcp = await viaMcp(req, body, async c => (await mcpOps.createClips(c, 'audio-full-song', { id: clip_id }))[0]);
+      if (mcp)
+        return mcp;
+
       const sunoCookie = resolveSunoCookie(req, body);
       if (!sunoCookie)
         return missingSunoCookieResponse();

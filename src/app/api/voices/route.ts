@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getClient } from '@/lib/routeHelpers';
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean, parseOptionalNumber } from '@/lib/utils';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -13,6 +15,10 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const page = parseInt(url.searchParams.get('page') || '1') || 1;
+    const mcp = await viaMcp(req, null, c => mcpOps.listVoices(c), 200, { auto: false });
+    if (mcp)
+      return mcp;
+
     const client = await getClient(req);
     if (client instanceof Response)
       return client;

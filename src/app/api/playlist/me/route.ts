@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { missingSunoCookieResponse, resolveSunoCookie } from '@/lib/apiAuth';
 import { corsHeaders } from '@/lib/utils';
 import { sunoApi } from '@/lib/SunoApi';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +13,10 @@ export async function GET(req: NextRequest) {
     const page = Number(url.searchParams.get('page') ?? '1');
     const showTrashed = String(url.searchParams.get('show_trashed') ?? 'false').toLowerCase() === 'true';
     const showSharelist = String(url.searchParams.get('show_sharelist') ?? 'false').toLowerCase() === 'true';
+
+    const mcp = await viaMcp(req, null, c => mcpOps.listMyPlaylists(c, Number.isFinite(page) && page > 0 ? page : 1));
+    if (mcp)
+      return mcp;
 
     const sunoCookie = resolveSunoCookie(req);
     if (!sunoCookie)

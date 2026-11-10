@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { AccountError, selectAccount } from '@suno-sdk';
+import { AccountError, selectAccount, type SunoMcpTokens } from '@suno-sdk';
 
 /**
  * Multi-account registry.
@@ -10,7 +10,11 @@ import { AccountError, selectAccount } from '@suno-sdk';
  *  - `env`: read-only accounts declared with SUNO_COOKIE (id `SUNO_DEFAULT_ACCOUNT_ID`, default "default")
  *    and SUNO_ACCOUNTS (JSON array: [{ "id": "main", "cookie": "...", "label": "..." }]).
  *  - `store`: accounts added through the /api/accounts endpoints, persisted in SUNO_ACCOUNTS_FILE
- *    (default ./.data/accounts.json). This file contains Suno cookies: keep it out of git and backups you share.
+ *    (default ./.data/accounts.json). This file contains Suno cookies and MCP OAuth tokens: keep it out of git
+ *    and backups you share.
+ *
+ * An account authenticates with a cookie (full Suno web API + MCP, linked on first use), with Suno MCP OAuth
+ * tokens only (MCP tools only), or both.
  */
 
 export type AccountSource = 'env' | 'store';
@@ -33,7 +37,11 @@ export type AccountCheck = {
 export type SunoAccount = {
   id: string;
   label?: string;
+  /** Empty for accounts connected only through Suno MCP OAuth. */
   cookie: string;
+  mcp?: SunoMcpTokens;
+  /** Last failure to link or reach the Suno MCP (cleared when new tokens are stored). */
+  mcp_error?: { at: string; error: string };
   source: AccountSource;
   disabled?: boolean;
   created_at?: string;
@@ -42,9 +50,17 @@ export type SunoAccount = {
   last_check?: AccountCheck;
 };
 
-export type PublicSunoAccount = Omit<SunoAccount, 'cookie'> & {
+export type PublicSunoAccount = Omit<SunoAccount, 'cookie' | 'mcp'> & {
   is_default: boolean;
-  cookie_preview: string;
+  cookie_preview: string | null;
+  /** What the account can use: the Suno web API (cookie) and/or the official MCP tools. */
+  auth: {
+    cookie: boolean;
+    mcp: 'linked' | 'available' | 'unavailable';
+    mcp_scope?: string;
+    /** Last failure to link or reach the MCP (cookie accounts then use the web API). */
+    mcp_error?: { at: string; error: string };
+  };
 };
 
 type StoredAccount = Omit<SunoAccount, 'source' | 'cookie'> & { cookie?: string };
@@ -67,6 +83,9 @@ const resolveStoreFile = () => {
 };
 
 const STORE_FILE = resolveStoreFile();
+
+/** Directory of the accounts file; other credential files (pending MCP authorizations) live next to it. */
+export const accountsStoreDir = () => path.dirname(STORE_FILE);
 
 const envDefaultAccountId = () =>
   process.env.SUNO_DEFAULT_ACCOUNT_ID?.trim() || 'default';
@@ -179,8 +198,8 @@ export function listAccounts(): SunoAccount[] {
   // Store entries override env accounts with the same id (metadata, checks, cookie if set).
   for (const account of readStore().accounts) {
     const envAccount = byId.get(account.id);
-    const cookie = account.cookie || envAccount?.cookie;
-    if (!cookie)
+    const cookie = account.cookie || envAccount?.cookie || '';
+    if (!cookie && !account.mcp)
       continue;
 
     byId.set(account.id, {
@@ -220,14 +239,21 @@ export function resolveAccount(accountId?: string | null): SunoAccount | null {
 }
 
 export function toPublicAccount(account: SunoAccount): PublicSunoAccount {
-  const { cookie, ...rest } = account;
+  const { cookie, mcp, mcp_error: mcpError, ...rest } = account;
   const clientMatch = cookie.match(/__client=([^;]+)/);
   const secret = clientMatch?.[1] || cookie;
 
   return {
     ...rest,
     is_default: getDefaultAccountId() === account.id,
-    cookie_preview: secret.length > 12 ? `${secret.slice(0, 6)}…${secret.slice(-4)}` : '***'
+    cookie_preview: !cookie ? null : secret.length > 12 ? `${secret.slice(0, 6)}…${secret.slice(-4)}` : '***',
+    auth: {
+      cookie: Boolean(cookie),
+      // A cookie account links itself to the MCP on first use.
+      mcp: mcp ? 'linked' : cookie ? 'available' : 'unavailable',
+      ...(mcp?.scope ? { mcp_scope: mcp.scope } : {}),
+      ...(mcpError ? { mcp_error: mcpError } : {})
+    }
   };
 }
 
@@ -262,6 +288,9 @@ export function upsertStoreAccount(input: {
   disabled?: boolean;
   user?: AccountUserInfo;
   last_check?: AccountCheck;
+  /** Suno MCP OAuth tokens; null removes them. */
+  mcp?: SunoMcpTokens | null;
+  mcp_error?: { at: string; error: string } | null;
   make_default?: boolean;
 }): SunoAccount {
   if (!ACCOUNT_ID_PATTERN.test(input.id))
@@ -275,7 +304,8 @@ export function upsertStoreAccount(input: {
 
   // Env accounts keep their cookie in the environment; only persist a cookie when one is given.
   const cookie = input.cookie ?? (index >= 0 ? store.accounts[index].cookie : undefined);
-  if (!cookie && !envAccount)
+  const mcp = input.mcp === null ? undefined : input.mcp ?? (index >= 0 ? store.accounts[index].mcp : undefined);
+  if (!cookie && !envAccount && !mcp)
     throw new AccountError('cookie is required');
 
   const next: StoredAccount = {
@@ -286,8 +316,12 @@ export function upsertStoreAccount(input: {
     created_at: (index >= 0 ? store.accounts[index].created_at : undefined) || now,
     updated_at: now,
     user: input.user ?? previous?.user,
-    last_check: input.last_check ?? previous?.last_check
+    last_check: input.last_check ?? previous?.last_check,
+    ...(mcp ? { mcp } : {})
   };
+  const mcpError = input.mcp_error !== undefined ? input.mcp_error : input.mcp ? null : (previous as StoredAccount | undefined)?.mcp_error;
+  if (mcpError)
+    next.mcp_error = mcpError;
 
   const accounts = [...store.accounts];
   if (index >= 0)

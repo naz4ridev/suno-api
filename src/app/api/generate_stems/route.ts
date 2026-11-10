@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { StemMode } from "@/lib/SunoApi";
 import { getClient } from "@/lib/routeHelpers";
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from "@/lib/utils";
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -25,6 +27,11 @@ export async function POST(req: NextRequest) {
       return jsonResponse({ error: 'Audio ID is required' }, 400);
     if (!validModes.includes(mode))
       return jsonResponse({ error: `mode must be one of: ${validModes.join(', ')}` }, 400);
+
+    const mcp = await viaMcp(req, body, c =>
+      mcpOps.createStems(c, audio_id, mcpOps.stemsMode(mode, body.stem_name), parseBoolean(body.wait_audio)), 200, { auto: false });
+    if (mcp)
+      return mcp;
 
     const client = await getClient(req, body);
     if (client instanceof Response)

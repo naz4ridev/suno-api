@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { missingSunoCookieResponse, resolveSunoAuth } from '@/lib/apiAuth';
+import { mcpAccountFor } from '@/lib/sunoMcp';
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from '@/lib/utils';
 import { getUploadFileWork, submitUploadFile } from '@/lib/uploadFileWorkflow';
 
@@ -37,7 +38,12 @@ export async function POST(req: NextRequest) {
     if (!(file instanceof File))
       return jsonResponse({ error: 'Missing form-data file field' }, 400);
 
-    const auth = resolveSunoAuth(req, formData);
+    // MCP-only accounts (or `transport: mcp`) upload through the Suno MCP: same work, steps and polling.
+    // Cookie accounts keep the web upload in auto mode: it reports copyright muting, which the MCP does not.
+    const mcpAccount = mcpAccountFor(req, formData, false)?.account;
+    const auth = mcpAccount
+      ? { cookie: '', accountId: mcpAccount.id, transport: 'mcp' as const }
+      : resolveSunoAuth(req, formData);
     if (!auth)
       return missingSunoCookieResponse();
 
@@ -57,7 +63,7 @@ export async function POST(req: NextRequest) {
 
     const work = await submitUploadFile({
       file: { name: file.name, type: file.type || undefined, bytes: fileBuffer },
-      auth: { cookie: auth.cookie, accountId: auth.accountId },
+      auth: { cookie: auth.cookie, accountId: auth.accountId, transport: 'transport' in auth ? auth.transport : undefined },
       workspaceId,
       workspaceName,
       title,

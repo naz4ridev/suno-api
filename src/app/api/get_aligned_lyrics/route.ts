@@ -2,6 +2,8 @@ import { NextResponse, NextRequest } from "next/server";
 import { missingSunoCookieResponse, resolveSunoCookie } from "@/lib/apiAuth";
 import { sunoApi } from "@/lib/SunoApi";
 import { corsHeaders, errorResponse } from "@/lib/utils";
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,10 @@ export async function GET(req: NextRequest) {
           }
         });
       }
+
+      const mcp = await viaMcp(req, null, c => mcpOps.lyricAlignment(c, song_id), 200, { auto: false });
+      if (mcp)
+        return mcp;
 
       const sunoCookie = resolveSunoCookie(req);
       if (!sunoCookie)

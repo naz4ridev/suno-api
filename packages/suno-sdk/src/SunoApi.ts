@@ -522,6 +522,14 @@ export class SunoApi {
     this.setCurrentToken(newToken);
   }
 
+  /** Current Clerk session JWT (renewed when needed). Used to approve Suno MCP connections for this account. */
+  public async getSessionToken(): Promise<string> {
+    await this.keepAlive(false);
+    if (!this.currentToken)
+      throw new Error('Missing Suno session token');
+    return this.currentToken;
+  }
+
   private async captchaRequired(): Promise<boolean> {
     const resp = await this.client.post(`${this.runtime.baseUrl}/api/c/check`, {
       ctype: 'generation'

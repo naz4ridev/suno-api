@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { missingSunoCookieResponse, resolveSunoCookie } from '@/lib/apiAuth';
 import { corsHeaders, errorResponse } from '@/lib/utils';
 import { sunoApi } from '@/lib/SunoApi';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +34,11 @@ async function handleRequest({
       }
     );
   }
+
+  const mcp = await viaMcp(req, payload, c =>
+    mcpOps.getWorkspaceFeed(c, workspaceId || undefined, workspaceName || undefined, cursor, limit));
+  if (mcp)
+    return mcp;
 
   const sunoCookie = resolveSunoCookie(req, payload);
   if (!sunoCookie)

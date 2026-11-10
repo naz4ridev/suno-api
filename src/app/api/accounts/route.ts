@@ -11,6 +11,7 @@ import {
   upsertStoreAccount
 } from '@/lib/accounts';
 import { inspectCookie } from '@/lib/accountService';
+import { linkMcp } from '@/lib/sunoMcp';
 import { errorResponse, jsonResponse, optionsResponse, parseBoolean } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -31,8 +32,10 @@ export async function GET() {
 
 /**
  * POST /api/accounts
- * Body: { cookie: "<full cookie header or __client value>", id?, label?, make_default?, skip_check? }
- * The cookie is validated against Suno (session + credits) before it is stored.
+ * Body: { cookie: "<full cookie header or __client value>", id?, label?, make_default?, skip_check?, link_mcp? }
+ * The cookie is validated against Suno (session + credits) before it is stored. Unless `link_mcp` is false,
+ * the account is also connected to the official Suno MCP with that session; a linking failure does not undo
+ * the account (`mcp_link_error` in the answer, retry with POST /api/accounts/{id}/mcp).
  */
 export async function POST(req: NextRequest) {
   const denied = requireAccountsAdmin(req);
@@ -82,7 +85,17 @@ export async function POST(req: NextRequest) {
       make_default: parseBoolean(body.make_default) || !getDefaultAccountId()
     });
 
-    return jsonResponse(toPublicAccount(account), 201);
+    let linked = account;
+    let mcpLinkError: string | undefined;
+    if (parseBoolean(body.link_mcp, true)) {
+      try {
+        linked = await linkMcp(account);
+      } catch (error: any) {
+        mcpLinkError = error?.message || String(error);
+      }
+    }
+
+    return jsonResponse({ ...toPublicAccount(linked), ...(mcpLinkError ? { mcp_link_error: mcpLinkError } : {}) }, 201);
   } catch (error: any) {
     return errorResponse(error, 'Error adding account');
   }

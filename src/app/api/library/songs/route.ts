@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getClient } from '@/lib/routeHelpers';
 import { errorResponse, jsonResponse, optionsResponse } from '@/lib/utils';
+import { viaMcp } from '@/lib/sunoMcp';
+import { mcpOps } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +19,17 @@ export async function GET(req: NextRequest) {
     const liked = query.get('liked');
     if (liked !== null && !['true', 'false', '1', '0'].includes(liked.toLowerCase()))
       return jsonResponse({ error: 'liked must be true or false' }, 400);
+
+    const mcp = await viaMcp(req, null, c => mcpOps.listLibrary(c, {
+      workspaceId: query.get('workspace_id'),
+      playlistId: query.get('playlist_id'),
+      query: query.get('q'),
+      liked: liked !== null && ['true', '1'].includes(liked.toLowerCase()),
+      cursor: query.get('cursor'),
+      limit: rawLimit === null ? undefined : Number(rawLimit)
+    }));
+    if (mcp)
+      return mcp;
 
     const client = await getClient(req);
     if (client instanceof Response)
