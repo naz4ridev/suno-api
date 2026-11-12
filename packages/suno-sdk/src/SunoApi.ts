@@ -1,4 +1,4 @@
-import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios';
 import * as cookie from 'cookie';
 import { randomUUID, webcrypto } from 'node:crypto';
 import path from 'node:path';
@@ -312,6 +312,8 @@ const errorDetail = (data: any): string | undefined => {
 };
 
 type RetryableConfig = InternalAxiosRequestConfig & { __retryCount?: number };
+/** Marks a request to Suno's auth server, which must not get any Authorization header. */
+const AUTH_REQUEST = { __sunoAuth: true } as AxiosRequestConfig;
 
 export class SunoApi {
   private static CLERK_VERSION = '5.117.0';
@@ -355,7 +357,11 @@ export class SunoApi {
       }
     });
     this.client.interceptors.request.use(config => {
-      if (this.currentToken && !config.headers.Authorization)
+      // auth.suno.com (Suno's own Clerk-compatible auth since 2026-11) reads the refresh token from the
+      // __client cookie only; any Authorization header makes it answer an empty, signed-out client.
+      if ((config as { __sunoAuth?: boolean }).__sunoAuth)
+        delete config.headers.Authorization;
+      else if (this.currentToken && !config.headers.Authorization)
         config.headers.Authorization = `Bearer ${this.currentToken}`;
       config.headers['Browser-Token'] = this.getBrowserToken();
       const cookiesArray = Object.entries(this.cookies).map(([key, value]) =>
@@ -467,10 +473,10 @@ export class SunoApi {
     // URL to get session ID
     const getSessionUrl = `${this.runtime.authBaseUrl}/v1/client?__clerk_api_version=2025-11-10&_clerk_js_version=${SunoApi.CLERK_VERSION}`;
     // Get session ID
-    const sessionResponse = await this.client.get(getSessionUrl, {
-      headers: { Authorization: this.cookies.__client }
-    });
-    if (!sessionResponse?.data?.response?.last_active_session_id) {
+    const sessionResponse = await this.client.get(getSessionUrl, AUTH_REQUEST);
+    const client = sessionResponse?.data?.response;
+    const sid = client?.last_active_session_id || client?.sessions?.[0]?.id;
+    if (!sid) {
       const error = new Error(
         'Failed to get session id, you may need to update the SUNO_COOKIE'
       );
@@ -478,7 +484,7 @@ export class SunoApi {
       throw error;
     }
     // Save session ID for later use
-    this.sid = sessionResponse.data.response.last_active_session_id;
+    this.sid = sid;
   }
 
   /**
@@ -498,9 +504,7 @@ export class SunoApi {
     this.runtime.logger.info('KeepAlive...\n');
     let renewResponse;
     try {
-      renewResponse = await this.client.post(renewUrl, {}, {
-        headers: { Authorization: this.cookies.__client }
-      });
+      renewResponse = await this.client.post(renewUrl, {}, AUTH_REQUEST);
     } catch (error) {
       if (
         axios.isAxiosError(error) &&

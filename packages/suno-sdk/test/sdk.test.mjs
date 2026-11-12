@@ -49,6 +49,27 @@ test('authentication sends the account cookie, renews a bearer and caches one cl
   assert.equal(other.accountId, 'second');
 });
 
+test('auth.suno.com gets the refresh token as a cookie, never an Authorization header, also when renewing', async () => {
+  let issued = 0;
+  const mock = mockSuno({
+    // Suno's own auth (2026-11) may omit last_active_session_id; the first session is the active one.
+    'GET /v1/client': () => ({ response: { sessions: [{ id: 'sess_1' }] } }),
+    // The first bearer is already expired, so the next call renews while a bearer is current.
+    'POST /v1/client/sessions/sess_1/tokens': () => ({ jwt: fakeJwt(issued++ ? 3600 : -10) }),
+    ['GET /api/clip/' + CLIP]: () => feedClip(CLIP)
+  });
+  const registry = sdk.createSunoRegistry({ proxy: mock.proxy, accounts: { resolve: () => ACCOUNTS[0] } });
+  const api = await registry.sunoApiForAccount('main');
+  await api.getClip(CLIP);
+  const auth = mock.calls.filter(call => call.host === 'auth.suno.com');
+  assert.equal(auth.filter(call => call.path.endsWith('/tokens')).length, 2);
+  for (const call of auth) {
+    assert.equal(call.headers.Authorization, undefined, call.path);
+    assert.match(call.headers.Cookie, /__client=cookie-main/);
+  }
+  assert.match(mock.calls.find(call => call.path === `/api/clip/${CLIP}`).headers.Authorization, /^Bearer /);
+});
+
 test('a 429 is retried with the injected limit and never leaks the upstream body', async () => {
   let hits = 0;
   const mock = mockSuno({ 'GET /api/session/': () => (++hits < 3 ? status(429, { detail: 'slow down' }) : { user: { id: 'u1', handle: 'h' } }) });
