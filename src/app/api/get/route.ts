@@ -16,8 +16,8 @@ export async function GET(req: NextRequest) {
     const songIds = url.searchParams.get('ids');
     const page = url.searchParams.get('page') || url.searchParams.get('cursor');
 
-    const mcp = await viaMcp(req, null, async c => songIds
-      ? mcpOps.retrieveClips(c, songIds.split(',').map(id => id.trim()).filter(Boolean))
+    const mcp = await viaMcp(req, null, async (c, account) => songIds
+      ? mcpOps.retrieveClips(c, songIds.split(',').map(id => id.trim()).filter(Boolean), account.user)
       : (await mcpOps.listLibrary(c, { cursor: page })).clips);
     if (mcp)
       return mcp;

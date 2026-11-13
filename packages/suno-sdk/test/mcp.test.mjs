@@ -205,3 +205,11 @@ test('mcp ops: requests the MCP cannot honour are marked unsupported (cookie acc
   assert.equal((await sdk.mcpOps.editClip(client, 'c', { title: 't', account: 'main' })).id, 'c');
   assert.equal(sdk.unsupportedViaMcp('x').unsupported, true);
 });
+
+test('an MCP clip gets the asking account user id only when its handle is that account\'s own', async () => {
+  const client = { callToolJson: async (_tool, { id }) => ({ id, handle: id === 'mine' ? 'me' : 'someone', status: 'complete', metadata: {} }) };
+  const [mine, other] = await sdk.mcpOps.retrieveClips(client, ['mine', 'theirs'], { id: 'u-me', handle: 'me' });
+  assert.equal(mine.user_id, 'u-me');
+  assert.equal(other.user_id, undefined);
+  assert.equal((await sdk.mcpOps.retrieveClips(client, ['mine']))[0].user_id, undefined, 'no owner, no guess');
+});

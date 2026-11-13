@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      const mcp = await viaMcp(req, null, async c => (await mcpOps.retrieveClips(c, [clipId]))[0]);
+      const mcp = await viaMcp(req, null, async (c, account) => (await mcpOps.retrieveClips(c, [clipId], account.user))[0]);
       if (mcp)
         return mcp;
 

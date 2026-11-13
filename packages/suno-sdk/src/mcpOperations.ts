@@ -76,8 +76,18 @@ export async function listModels(client: SunoMcpClient) {
 
 /* Clips */
 
-export async function retrieveClips(client: SunoMcpClient, ids: string[]): Promise<any[]> {
-  return Promise.all(ids.map(async id => toAudioInfo(await client.callToolJson('audio-retrieve', { id }))));
+/**
+ * `owner` is the account asking. The MCP names a clip's owner only by `handle` (no `user_id`), so a clip whose handle
+ * is the asking account's own gets that account's user id; any other clip keeps no `user_id` (never a guess).
+ */
+export async function retrieveClips(client: SunoMcpClient, ids: string[], owner?: { id?: string; handle?: string }): Promise<any[]> {
+  return Promise.all(ids.map(async id => withOwner(toAudioInfo(await client.callToolJson('audio-retrieve', { id })), owner)));
+}
+
+export function withOwner(clip: any, owner?: { id?: string; handle?: string }): any {
+  if (!clip || typeof clip !== 'object' || clip.user_id || !owner?.id || !owner.handle || clip.handle !== owner.handle)
+    return clip;
+  return { ...clip, user_id: owner.id };
 }
 
 const SETTLED: Record<'playable' | 'complete', string[]> = {
