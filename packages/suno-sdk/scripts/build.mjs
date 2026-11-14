@@ -78,6 +78,9 @@ export async function buildSdk(root = PKG_ROOT) {
     charset: 'utf8',
     // debug (via socks-proxy-agent) probes this optional package inside try/catch.
     external: ['supports-color'],
+    // @suno-api/core is linked from packages/suno-core; keep its node_modules path so it is listed
+    // as a bundled dependency (name, version, licence) like any other.
+    preserveSymlinks: true,
     banner: { js: "import { createRequire as __sunoCreateRequire } from 'node:module';\nconst require = __sunoCreateRequire(import.meta.url);" },
     logLevel: 'silent'
   });

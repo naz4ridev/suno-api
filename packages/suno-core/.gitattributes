@@ -1,0 +1,3 @@
+# Generated SDK provenance hashes the canonical source byte for byte.
+# Keep it identical on Windows and POSIX checkouts.
+src/** text eol=lf

@@ -1,0 +1,161 @@
+{
+  "capturedAt": "2026-11-06",
+  "account": "itsmpvmusic",
+  "note": "Sanitized projection; request body not captured in this first sample.",
+  "requests": [
+    {
+      "body": null,
+      "method": "GET",
+      "response": {
+        "pages": 0
+      },
+      "status": 200,
+      "url": "https://suno.com/a/api/clip/8e3286fb-5046-4233-b478-af5b0d61f69f/stems/pages"
+    },
+    {
+      "body": null,
+      "method": "POST",
+      "response": {
+        "outcome": "not_assigned"
+      },
+      "status": 200,
+      "url": "https://suno.com/a/api/clip/8e3286fb-5046-4233-b478-af5b0d61f69f/stems/prefetch"
+    },
+    {
+      "body": null,
+      "method": "GET",
+      "response": {
+        "clips": [
+          {
+            "batch_index": 0,
+            "id": "7390193c-678d-4453-bfb6-0b6b6c244e12",
+            "metadata": {
+              "complement_of_id": "cc882b27-ec4e-4943-9b04-9914e0aa7caa",
+              "history": [
+                {
+                  "id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+                  "infill": false,
+                  "source": "web",
+                  "source_is_webview": false,
+                  "stem_from_id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+                  "stem_task": "extract",
+                  "stem_type_group_name": "Drum Kit",
+                  "stem_type_id": 91,
+                  "type": "gen"
+                }
+              ],
+              "make_instrumental": true,
+              "stem_from_id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+              "stem_task": "extract",
+              "stem_type_group_name": "Drum Kit",
+              "stem_type_id": 91,
+              "task": "gen_stem"
+            },
+            "model_name": "chirp-stem",
+            "status": "submitted",
+            "title": "fastdl 1 (FULL MIX LP) (Drum Kit)"
+          },
+          {
+            "batch_index": 1,
+            "id": "cc882b27-ec4e-4943-9b04-9914e0aa7caa",
+            "metadata": {
+              "complement_of_id": "7390193c-678d-4453-bfb6-0b6b6c244e12",
+              "history": [
+                {
+                  "id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+                  "infill": false,
+                  "source": "web",
+                  "source_is_webview": false,
+                  "stem_from_id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+                  "stem_task": "extract",
+                  "stem_type_group_name": "Drum Kit",
+                  "stem_type_id": 91,
+                  "type": "gen"
+                }
+              ],
+              "make_instrumental": false,
+              "stem_from_id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+              "stem_task": "remove",
+              "stem_type_group_name": "Drum Kit",
+              "stem_type_id": 91,
+              "task": "gen_stem"
+            },
+            "model_name": "chirp-stem",
+            "status": "submitted",
+            "title": "fastdl 1 (FULL MIX LP) (Without Drum Kit)"
+          },
+          {
+            "batch_index": 2,
+            "id": "4fd4178a-7eae-464f-a501-e1000c20f40d",
+            "metadata": {
+              "complement_of_id": "9785d890-8484-4564-aafa-2a02b3c53072",
+              "history": [
+                {
+                  "id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+                  "infill": false,
+                  "source": "web",
+                  "source_is_webview": false,
+                  "stem_from_id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+                  "stem_task": "extract",
+                  "stem_type_group_name": "Drum Kit",
+                  "stem_type_id": 91,
+                  "type": "gen"
+                }
+              ],
+              "make_instrumental": true,
+              "stem_from_id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+              "stem_task": "extract",
+              "stem_type_group_name": "Drum Kit",
+              "stem_type_id": 91,
+              "task": "gen_stem"
+            },
+            "model_name": "chirp-stem",
+            "status": "submitted",
+            "title": "fastdl 1 (FULL MIX LP) (Drum Kit)"
+          },
+          {
+            "batch_index": 3,
+            "id": "9785d890-8484-4564-aafa-2a02b3c53072",
+            "metadata": {
+              "complement_of_id": "4fd4178a-7eae-464f-a501-e1000c20f40d",
+              "history": [
+                {
+                  "id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+                  "infill": false,
+                  "source": "web",
+                  "source_is_webview": false,
+                  "stem_from_id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+                  "stem_task": "extract",
+                  "stem_type_group_name": "Drum Kit",
+                  "stem_type_id": 91,
+                  "type": "gen"
+                }
+              ],
+              "make_instrumental": false,
+              "stem_from_id": "8e3286fb-5046-4233-b478-af5b0d61f69f",
+              "stem_task": "remove",
+              "stem_type_group_name": "Drum Kit",
+              "stem_type_id": 91,
+              "task": "gen_stem"
+            },
+            "model_name": "chirp-stem",
+            "status": "submitted",
+            "title": "fastdl 1 (FULL MIX LP) (Without Drum Kit)"
+          }
+        ],
+        "id": "80372f3a-6646-4b49-a8a9-5b8e74a93c2f"
+      },
+      "status": 200,
+      "url": "https://suno.com/a/api/generate/v2-web/"
+    },
+    {
+      "body": null,
+      "method": "GET",
+      "response": {
+        "pages": 2
+      },
+      "status": 200,
+      "url": "https://suno.com/a/api/clip/8e3286fb-5046-4233-b478-af5b0d61f69f/stems/pages"
+    }
+  ]
+}

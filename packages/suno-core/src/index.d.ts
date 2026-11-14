@@ -1,0 +1,76 @@
+/** Tipos de @suno-api/core. Fuente canónica: se distribuye junto a index.js. */
+
+export const CLIP_ID_RE: RegExp;
+export const LEGACY_CDN_ORIGIN: string;
+
+export class SunoCoreError extends Error {
+  readonly code: string;
+  constructor(message: string, code: string);
+}
+
+export type BytesLike = ArrayBuffer | ArrayBufferView;
+/** 16 bytes, o su hex de 32 caracteres. */
+export type KeyMaterial = Uint8Array | string;
+
+export function isClipId(value: unknown): value is string;
+export function assertClipId(value: unknown): string;
+export function bytesToHex(buf: BytesLike): string;
+export function hexToBytes(hex: string): Uint8Array;
+export function base64ToBytes(b64: string): Uint8Array;
+export function parseKeyMaterial(value: KeyMaterial | BytesLike): Uint8Array;
+export function isMp4(bytes: BytesLike): boolean;
+export function assertMp4<T extends BytesLike>(bytes: T): T;
+
+export function legacyCdnUrl(clipId: string): string;
+export function assertPlaybackUrl(url: string, clipId: string): string;
+
+export interface MediaUrlEntry {
+  delivery?: string;
+  encoding?: string;
+  url?: string;
+}
+export interface ClipLike {
+  id?: string;
+  title?: string;
+  user_id?: string;
+  handle?: string;
+  batch_index?: number | string | null;
+  media_urls?: MediaUrlEntry[] | null;
+  metadata?: Record<string, any> | null;
+}
+export interface SelectPlaybackUrlOptions {
+  clipId?: string;
+  /** Solo clips sin `media_urls`; con `media_urls` presente nunca se usa. */
+  allowLegacyCdn?: boolean;
+}
+export function selectPlaybackUrl(clip: ClipLike, options?: SelectPlaybackUrlOptions): string;
+
+export interface PlaybackSubtle {
+  digest(algorithm: string, data: BufferSource): Promise<ArrayBuffer>;
+  importKey(format: 'raw', keyData: BufferSource, algorithm: any, extractable: boolean, usages: string[]): Promise<CryptoKey>;
+  decrypt(algorithm: any, key: CryptoKey, data: BufferSource): Promise<ArrayBuffer>;
+}
+export interface PlaybackCrypto {
+  deriveMasterKey(token: string): Promise<CryptoKey>;
+  unwrapKey(wrappedB64: string, clipId: string, masterKey: CryptoKey): Promise<Uint8Array>;
+  unwrapPlaybackRights(
+    rights: { key?: unknown; iv?: unknown } | null | undefined,
+    clipId: string,
+    masterKey: CryptoKey,
+  ): Promise<{ key: Uint8Array; iv: Uint8Array }>;
+  decryptPlayback(encrypted: BytesLike, material: { key: KeyMaterial; iv: KeyMaterial }): Promise<Uint8Array>;
+}
+export function createPlaybackCrypto(options?: { subtle?: PlaybackSubtle }): PlaybackCrypto;
+
+export interface ClipDescription {
+  isStem: boolean;
+  isComplement: boolean;
+  stemName: string | null;
+  songTitle: string;
+  version: '' | `V${number}`;
+  kind: 'auto' | 'advanced';
+  songId: string;
+  userId: string | undefined;
+  handle: string | undefined;
+}
+export function describeClip(clip: ClipLike | null | undefined): ClipDescription;

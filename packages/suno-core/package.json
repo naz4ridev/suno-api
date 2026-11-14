@@ -1,0 +1,33 @@
+{
+  "name": "@suno-api/core",
+  "version": "0.3.0",
+  "description": "Núcleo compartido de Suno: describeClip, unwrap AES-GCM, descifrado AES-CTR, selección de URL. Sin DOM/cookies/fs/dependencias. Fuente en suno-api; se distribuye como .tgz versionado.",
+  "license": "LGPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./global": "./dist/suno-core.global.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs",
+    "pack:release": "npm pack"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}
