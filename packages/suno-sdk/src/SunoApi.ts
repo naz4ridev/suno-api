@@ -5,7 +5,7 @@ import path from 'node:path';
 import { CaptchaFlowError, isCaptchaFlowError, normalizeCaptchaResult } from './captcha.ts';
 import { resolveRuntime, sleep, type SunoRuntime, type SunoRuntimeOptions } from './runtime.ts';
 // Cripto/URL/validación de audio compartidos con la extensión. Copia GENERADA desde suno2daw/packages/suno-core: no editar.
-import { createPlaybackCrypto, isClipId, selectPlaybackUrl } from './vendor/suno-core.generated.js';
+import { createPlaybackCrypto, isClipId, selectPlaybackUrl } from '@suno2daw/suno-core';
 import { stemRenderClipIds, assertStemRenderSource } from './stemRender.ts';
 import { buildLibraryFeedRequest, type LibraryFeedOptions } from './libraryFeed.ts';
 

@@ -4,7 +4,8 @@ FROM node:24.22.1-bookworm AS builder
 WORKDIR /src                                                                                                            
 ARG APP_BASE_PATH=
 ENV APP_BASE_PATH=${APP_BASE_PATH}
-COPY package*.json ./                                                                                                   
+COPY package*.json ./
+COPY vendor ./vendor                                                                                                   
 RUN npm install                                                                                                         
 COPY scripts ./scripts
 COPY . .                                                                                                               
@@ -14,7 +15,8 @@ FROM node:24.22.1-bookworm
 WORKDIR /app                                                                                                            
 ARG APP_BASE_PATH=
 ENV APP_BASE_PATH=${APP_BASE_PATH}
-COPY package*.json ./                                                                                                   
+COPY package*.json ./
+COPY vendor ./vendor                                                                                                   
 COPY scripts ./scripts
                                                                                                                     
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y libnss3 \                                       
