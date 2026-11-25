@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server';
 import { getClient } from '@/lib/routeHelpers';
 import { errorResponse, jsonResponse, optionsResponse } from '@/lib/utils';
 import { viaMcp } from '@/lib/sunoMcp';
-import { mcpOps } from '@suno-sdk';
 import { SunoMcpError } from '@suno-sdk';
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +28,7 @@ export async function GET(req: NextRequest) {
 
     const client = await getClient(req);
     if (client instanceof Response) return client;
-    return jsonResponse(await client.api.listStems(id, Number(rawPage)));
+    return jsonResponse(await client.api.listStems(id, Number(rawPage), { count: query.get('count') !== '0' }));
   } catch (error: any) {
     return errorResponse(error, 'Error listing stems');
   }

@@ -164,7 +164,7 @@ export function createSunoContract(options: ContractOptions) {
         throw badRequest('id must be a clip UUID');
       if (!/^\d+$/.test(rawPage) || !Number.isSafeInteger(Number(rawPage)))
         throw badRequest('page must be a non-negative integer');
-      return (await client(account)).api.listStems(id, Number(rawPage));
+      return (await client(account)).api.listStems(id, Number(rawPage), { count: query.get('count') !== '0' });
     } },
     { method: 'POST', pattern: /^\/api\/generate_stems$/, async run({ body, account }) {
       const audioId = body?.audio_id;

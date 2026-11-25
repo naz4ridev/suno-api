@@ -313,7 +313,7 @@ const errorDetail = (data: any): string | undefined => {
 
 type RetryableConfig = InternalAxiosRequestConfig & { __retryCount?: number };
 /** Marks a request to Suno's auth server, which must not get any Authorization header. */
-const AUTH_REQUEST = { __sunoAuth: true } as AxiosRequestConfig;
+const AUTH_REQUEST = { __sunoAuth: true, timeout: 10_000 } as AxiosRequestConfig;
 
 export class SunoApi {
   private static CLERK_VERSION = '5.117.0';
@@ -322,6 +322,7 @@ export class SunoApi {
   private sid?: string;
   private currentToken?: string;
   private currentTokenExpiresAt?: number;
+  private tokenRefresh?: Promise<void>;
   private deviceId?: string;
   private userAgent?: string;
   private cookies: Record<string, string | undefined>;
@@ -449,7 +450,7 @@ export class SunoApi {
     this.currentTokenExpiresAt = this.decodeJwtExpiry(token);
   }
 
-  private hasUsableCurrentToken(bufferMs: number = 60_000): boolean {
+  private hasUsableCurrentToken(bufferMs: number = 10_000): boolean {
     if (!this.currentToken)
       return false;
 
@@ -498,6 +499,11 @@ export class SunoApi {
     if (this.hasUsableCurrentToken()) {
       return;
     }
+    this.tokenRefresh ??= this.refreshToken(isWait).finally(() => { this.tokenRefresh = undefined; });
+    await this.tokenRefresh;
+  }
+
+  private async refreshToken(isWait?: boolean): Promise<void> {
     // URL to renew session token
     const renewUrl = `${this.runtime.authBaseUrl}/v1/client/sessions/${this.sid}/tokens?__clerk_api_version=2025-11-10&_clerk_js_version=${SunoApi.CLERK_VERSION}`;
     // Renew session token
@@ -988,19 +994,24 @@ export class SunoApi {
   }
 
   /** Existing stems, preserving native metadata, alternatives and complements. No generation or unlock. */
-  public async listStems(songId: string, page = 0): Promise<{ pages: number; current_page: number; stems: any[] }> {
+  public async listStems(songId: string, page = 0, { count = true } = {}): Promise<{ pages: number | null; current_page: number; stems: any[] }> {
     if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(songId))
       throw Object.assign(new Error('Invalid clip id'), { status: 400 });
     if (!Number.isSafeInteger(page) || page < 0)
       throw Object.assign(new Error('Invalid stem page'), { status: 400 });
     await this.keepAlive(false);
-    const count = await this.client.get(this.url(`/api/clip/${songId}/stems/pages`));
-    const pages = count.data?.pages;
-    if (!Number.isSafeInteger(pages) || pages < 0)
-      throw new Error('Unexpected stem page count from Suno');
-    if (pages === 0) return { pages: 0, current_page: 0, stems: [] };
-    if (page >= pages) throw Object.assign(new Error('Stem page out of range'), { status: 400 });
-    const response = await this.client.get(this.url(`/api/clip/${songId}/stems`), { params: { page } });
+    const base = this.url(`/api/clip/${songId}/stems`);
+    let pages: number | null = null;
+    if (count || page === 0) {
+      const response = await this.client.get(base + '/pages', { timeout: 10_000 });
+      const total = response.data?.pages;
+      if (!Number.isSafeInteger(total) || total < 0)
+        throw new Error('Unexpected stem page count from Suno');
+      pages = total;
+      if (total === 0) return { pages: 0, current_page: 0, stems: [] };
+      if (page >= total) throw Object.assign(new Error('Stem page out of range'), { status: 400 });
+    }
+    const response = await this.client.get(base, { params: { page }, timeout: 10_000 });
     if (!Array.isArray(response.data?.stems)) throw new Error('Unexpected stems response from Suno');
     return { pages, current_page: response.data.current_page ?? page, stems: response.data.stems };
   }

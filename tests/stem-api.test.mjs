@@ -24,6 +24,10 @@ test('list existing stems handles empty, multiple pages and invalid page without
   } };
   assert.equal((await client.listStems(song, 1)).stems[0].id, stem);
   assert.equal(calls[1].options.params.page, 1);
+  calls.length = 0;
+  const next = await client.listStems(song, 1, { count: false });
+  assert.equal(next.pages, null);
+  assert.deepEqual(calls.map(call => call.path), [`/api/clip/${song}/stems`]);
   await assert.rejects(client.listStems(song, 2), { status: 400 });
   await assert.rejects(client.listStems(song, -1), { status: 400 });
   client.client.get = async () => ({ data: { pages: 0 } });
