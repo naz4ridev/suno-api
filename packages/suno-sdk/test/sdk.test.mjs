@@ -124,6 +124,30 @@ test('captcha failures are CaptchaFlowErrors raised before any generation POST',
   }
 });
 
+test('generation uses the provider version selected by Suno and makes one submission', async () => {
+  for (const [check, provider, version] of [
+    [{ required: true }, 'hcaptcha', 1],
+    [{ required: true, captcha_version: 2 }, 'turnstile', 2],
+    [{ required: false, captcha_version: 2 }, null, null],
+  ]) {
+    const seen = [];
+    const mock = mockSuno({
+      'POST /api/c/check': () => check,
+      [`GET /api/clip/${CLIP}`]: () => feedClip(CLIP),
+      'POST /api/generate/v2-web/': () => status(429, { detail: 'rate limited: test-verification' }),
+    });
+    const contract = contractFor(mock, { captcha: async request => { seen.push(request.provider); return 'test-verification'; } });
+    await assert.rejects(contract.request({ method: 'POST', path: '/api/generate_stems', body: { audio_id: CLIP, stem_name: 'Bass' } }),
+      error => error.status === 429 && !error.message.includes('test-verification'));
+    const posts = mock.calls.filter(call => call.path === '/api/generate/v2-web/');
+    assert.equal(posts.length, 1);
+    const body = JSON.parse(posts[0].body);
+    assert.equal(body.token_provider, version);
+    assert.equal(body.token, provider ? 'test-verification' : null);
+    assert.deepEqual(seen, provider ? [provider] : []);
+  }
+});
+
 test('contract: accounts are sanitised, selected by id/label/handle and validated', async () => {
   const mock = mockSuno({ 'GET /api/session/': () => ({ user: {} }) });
   const contract = contractFor(mock);

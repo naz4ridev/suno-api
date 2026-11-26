@@ -386,8 +386,9 @@ export class SunoApi {
         const status = error.response?.status;
         const isStudioApi = config?.url?.startsWith(this.runtime.baseUrl);
 
-        // Suno rate limits bursts (429 "Too many requests", retryable: true). Back off and retry.
-        if (config && isStudioApi && status === 429) {
+        // Generation is journaled by the caller and its verification response is single-use.
+        const isGeneration = config?.url === this.url('/api/generate/v2-web/');
+        if (config && isStudioApi && status === 429 && !isGeneration) {
           config.__retryCount = (config.__retryCount || 0) + 1;
           if (config.__retryCount <= this.runtime.max429Retries) {
             const retryAfter = Number(error.response?.headers?.['retry-after']);
@@ -401,7 +402,7 @@ export class SunoApi {
         }
 
         if (error.response && isStudioApi) {
-          const detail = errorDetail(error.response.data);
+          const detail = isGeneration ? '' : errorDetail(error.response.data);
           const method = (config?.method || 'get').toUpperCase();
           const pathname = config?.url?.replace(this.runtime.baseUrl, '') || '';
           error.message = `Suno API ${status} on ${method} ${pathname}${detail ? `: ${detail}` : ''}`;
@@ -534,36 +535,25 @@ export class SunoApi {
     return this.currentToken;
   }
 
-  private async captchaRequired(): Promise<boolean> {
-    const resp = await this.client.post(`${this.runtime.baseUrl}/api/c/check`, {
-      ctype: 'generation'
-    });
-    this.runtime.logger.info({ required: Boolean(resp.data?.required) }, 'captcha check');
-    return Boolean(resp.data?.required);
-  }
+  private async getGenerationCaptcha(): Promise<{ token: string | null; version: 1 | 2 | null }> {
+    const { data } = await this.client.post(this.url('/api/c/check'), { ctype: 'generation' });
+    if (!data?.required) return { token: null, version: null };
 
-  /**
-   * Obtains the hCaptcha token for a generation request, or null when Suno does not ask for one.
-   * The challenge itself is answered by the host's injected CaptchaProvider (headless browser + solver on the
-   * server, an interactive window on the desktop). The generation request that carries the token is never
-   * sent by the provider, and every failure is a CaptchaFlowError raised before the real POST.
-   * @returns {string|null} hCaptcha token. If no verification is required, returns null
-   */
-  public async getCaptcha(): Promise<string|null> {
-    if (!await this.captchaRequired())
-      return null;
+    // Suno's web client uses provider 1 for hCaptcha and 2 for Turnstile.
+    const version = data.captcha_version === 2 ? 2 : 1;
 
     const provider = this.runtime.captcha;
     if (!provider)
       throw new CaptchaFlowError('CAPTCHA_INTERACTION_REQUIRED',
         'A CAPTCHA is required and no captcha provider is configured; manual interaction is needed');
 
-    this.runtime.logger.info('CAPTCHA required. Asking the captcha provider...');
+    this.runtime.logger.info({ version }, 'CAPTCHA required');
     let result;
     try {
       result = normalizeCaptchaResult(await provider({
         ...(this.accountId ? { accountId: this.accountId } : {}),
         purpose: 'generation',
+        provider: version === 2 ? 'turnstile' : 'hcaptcha',
         userAgent: this.userAgent || this.runtime.userAgent,
         ...(this.runtime.locale ? { locale: this.runtime.locale } : {}),
         cookies: { ...this.cookies },
@@ -578,7 +568,11 @@ export class SunoApi {
     this.runtime.logger.info('Captcha token received');
     if (result.authorization)
       this.setCurrentToken(result.authorization);
-    return result.token;
+    return { token: result.token, version };
+  }
+
+  public async getCaptcha(): Promise<string|null> {
+    return (await this.getGenerationCaptcha()).token;
   }
 
   /**
@@ -825,9 +819,10 @@ export class SunoApi {
       ...(options.extra_metadata || {})
     };
 
+    const captcha = await this.getGenerationCaptcha();
     const payload: Record<string, any> = {
       project_id: options.project_id,
-      token: await this.getCaptcha(),
+      token: captcha.token,
       task,
       generation_type: 'TEXT',
       title: options.title ?? '',
@@ -850,7 +845,7 @@ export class SunoApi {
       continued_aligned_prompt: options.continued_aligned_prompt ?? null,
       continue_at: options.continue_at ?? null,
       transaction_uuid: randomUUID(),
-      token_provider: null
+      token_provider: captcha.version
     };
 
     if (isSimple) {

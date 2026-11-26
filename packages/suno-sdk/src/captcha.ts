@@ -84,6 +84,8 @@ export interface CaptchaRequest {
   locale?: string;
   /** Always `generation`: the only challenge Suno raises on this API. */
   purpose: 'generation';
+  /** Challenge provider selected by Suno for this request. */
+  provider?: 'hcaptcha' | 'turnstile';
   /** Cookies of the Suno session (secret). */
   cookies: Readonly<Record<string, string | undefined>>;
   /** Current bearer JWT (secret). */
@@ -93,7 +95,7 @@ export interface CaptchaRequest {
 }
 
 export interface CaptchaResult {
-  /** hCaptcha response that the generation request will carry. */
+  /** Verification response that the generation request will carry. */
   token: string;
   /** Renewed bearer observed while solving. Never log it. */
   authorization?: string;
